@@ -3,7 +3,10 @@
  *
  * Register the records you want inserted, updated, or deleted as your code runs, then call
  * `commitWork()` once at the end to perform all of the DML together, as a single all-or-nothing
- * operation - if any part fails, everything registered on this instance is rolled back.
+ * operation - if any part fails, everything registered on this instance is rolled back. Failures
+ * are logged via Nebula Logger (`Logger.exception`) before the original exception is rethrown
+ * unchanged; because that log entry is published as a platform event, it survives the DML
+ * rollback that just happened.
  *
  * New records are inserted in the order their sObject type was first registered, and deleted
  * records are deleted in the reverse of that order, so parent records exist before the children
@@ -187,6 +190,15 @@ public inherited sharing class UnitOfWork {
 	public void commitWork() {
 		this.assertNotCommitted();
 		this.committed = true;
+		Logger.fine(
+			'UnitOfWork.commitWork starting: ' +
+			this.countRecords(this.newRecordsByType) +
+			' to insert, ' +
+			this.countRecords(this.dirtyRecordsByType) +
+			' to update, ' +
+			this.countRecords(this.deletedRecordsByType) +
+			' to delete'
+		);
 		Savepoint savepoint = Database.setSavepoint();
 		try {
 			this.insertNewRecords();
@@ -194,7 +206,10 @@ public inherited sharing class UnitOfWork {
 			this.deleteRecordsInReverseOrder();
 		} catch (Exception e) {
 			Database.rollback(savepoint);
-			throw e;
+			Logger.exception(
+				'UnitOfWork.commitWork failed; all registered changes were rolled back',
+				e
+			);
 		}
 	}
 
@@ -275,6 +290,22 @@ public inherited sharing class UnitOfWork {
 			recordsByType.put(sObjectType, recordsById);
 		}
 		return recordsById;
+	}
+
+	private Integer countRecords(Map<Schema.SObjectType, List<SObject>> recordsByType) {
+		Integer total = 0;
+		for (List<SObject> records : recordsByType.values()) {
+			total += records.size();
+		}
+		return total;
+	}
+
+	private Integer countRecords(Map<Schema.SObjectType, Map<Id, SObject>> recordsByType) {
+		Integer total = 0;
+		for (Map<Id, SObject> records : recordsByType.values()) {
+			total += records.size();
+		}
+		return total;
 	}
 
 	private void trackType(Schema.SObjectType sObjectType) {

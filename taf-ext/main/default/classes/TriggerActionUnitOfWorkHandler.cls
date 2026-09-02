@@ -88,11 +88,38 @@ public inherited sharing class TriggerActionUnitOfWorkHandler extends TriggerBas
 
 	/**
 	 * @description Commits the current `UnitOfWork`, then runs any configured `DmlFinalizer`s -
-	 * this is called automatically, once, at the true end of the trigger run.
+	 * this is called automatically, once, at the true end of the trigger run. Regardless of
+	 * outcome, this is also the checkpoint where any log entries buffered via Nebula Logger
+	 * during the trigger run - by this class or by any Trigger Action - are saved.
 	 */
 	@TestVisible
 	protected override void finalizeDmlOperation() {
-		UnitOfWork.commitCurrent();
-		finalizerHandler.handleDynamicFinalizers();
+		try {
+			UnitOfWork.commitCurrent();
+			try {
+				finalizerHandler.handleDynamicFinalizers();
+			} catch (Exception e) {
+				Logger.error('DmlFinalizer execution failed for ' + this.describeTriggerContext(), e);
+				throw e;
+			}
+			Logger.fine('Finalized trigger processing for ' + this.describeTriggerContext());
+		} finally {
+			Logger.saveLog();
+		}
+	}
+
+	/**
+	 * @description Describes the sObject type and trigger context (e.g. `Account (AFTER_UPDATE)`)
+	 * for use in log messages, without triggering the `NullPointerException` that `sObjectName`
+	 * throws when called outside of an actual trigger invocation - as happens when a test calls
+	 * `finalizeDmlOperation()` directly, per its `@TestVisible` contract.
+	 * @return A human-readable description of the current sObject type and trigger context, or a
+	 * placeholder when called outside of a trigger.
+	 */
+	private String describeTriggerContext() {
+		Boolean canDescribe = this.triggerNew != null
+			? !this.triggerNew.isEmpty()
+			: this.triggerOld != null && !this.triggerOld.isEmpty();
+		return canDescribe ? this.sObjectName + ' (' + this.context + ')' : 'no trigger context';
 	}
 }
