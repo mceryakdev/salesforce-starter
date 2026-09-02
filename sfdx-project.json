@@ -11,6 +11,10 @@
     {
       "path": "taf-ext",
       "default": false
+    },
+    {
+      "path": "test-mocks",
+      "default": false
     }
   ],
   "name": "starter",
