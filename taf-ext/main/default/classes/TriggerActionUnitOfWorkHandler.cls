@@ -116,6 +116,7 @@ public inherited sharing class TriggerActionUnitOfWorkHandler extends TriggerBas
 	 * @return A human-readable description of the current sObject type and trigger context, or a
 	 * placeholder when called outside of a trigger.
 	 */
+	@TestVisible
 	private String describeTriggerContext() {
 		Boolean canDescribe = this.triggerNew != null
 			? !this.triggerNew.isEmpty()

@@ -345,4 +345,272 @@ private class UnitOfWorkTest {
 			'commitCurrent should not throw when getCurrent was never called'
 		);
 	}
+
+	@IsTest
+	private static void registerNewShouldBulkInsertRecords() {
+		List<Account> accounts = new List<Account>();
+		for (Integer i = 0; i < 200; i++) {
+			accounts.add(new Account(Name = 'Bulk Acme ' + i));
+		}
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerNew(accounts);
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			200,
+			[SELECT COUNT() FROM Account WHERE Name LIKE 'Bulk Acme %'],
+			'All 200 registered Accounts should have been inserted'
+		);
+	}
+
+	@IsTest
+	private static void registerDirtyShouldBulkUpdateRecords() {
+		List<Account> accounts = new List<Account>();
+		for (Integer i = 0; i < 200; i++) {
+			accounts.add(new Account(Name = 'Bulk Acme ' + i));
+		}
+		insert accounts;
+
+		List<Account> dirtyAccounts = new List<Account>();
+		for (Account account : accounts) {
+			dirtyAccounts.add(new Account(Id = account.Id, Rating = 'Hot'));
+		}
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerDirty(dirtyAccounts);
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			200,
+			[SELECT COUNT() FROM Account WHERE Name LIKE 'Bulk Acme %' AND Rating = 'Hot'],
+			'All 200 registered Accounts should have been updated'
+		);
+	}
+
+	@IsTest
+	private static void registerDirtyWithDuplicateIdsInOneListShouldMergeFields() {
+		Account account = new Account(Name = 'Acme', Industry = 'Technology');
+		insert account;
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerDirty(
+			new List<SObject>{
+				new Account(Id = account.Id, Rating = 'Hot'),
+				new Account(Id = account.Id, Description = 'Follow up')
+			}
+		);
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		Account updated = [SELECT Rating, Description FROM Account WHERE Id = :account.Id];
+		System.Assert.areEqual(
+			'Hot',
+			updated.Rating,
+			'The first list entry\'s field should have been applied'
+		);
+		System.Assert.areEqual(
+			'Follow up',
+			updated.Description,
+			'The second list entry\'s field should also have been applied'
+		);
+	}
+
+	@IsTest
+	private static void registerDirtyShouldMergeDuplicateIdsAcrossABulkRegistration() {
+		List<Account> accounts = new List<Account>();
+		for (Integer i = 0; i < 200; i++) {
+			accounts.add(new Account(Name = 'Bulk Acme ' + i));
+		}
+		insert accounts;
+
+		List<SObject> dirtyRecords = new List<SObject>();
+		for (Account account : accounts) {
+			dirtyRecords.add(new Account(Id = account.Id, Rating = 'Warm'));
+			dirtyRecords.add(new Account(Id = account.Id, Rating = 'Hot'));
+		}
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerDirty(dirtyRecords);
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			200,
+			[SELECT COUNT() FROM Account WHERE Name LIKE 'Bulk Acme %' AND Rating = 'Hot'],
+			'Duplicate registrations for the same Id should merge into a single update, with the last value winning'
+		);
+	}
+
+	@IsTest
+	private static void registerDeletedShouldBulkDeleteRecords() {
+		List<Account> accounts = new List<Account>();
+		for (Integer i = 0; i < 200; i++) {
+			accounts.add(new Account(Name = 'Bulk Acme ' + i));
+		}
+		insert accounts;
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerDeleted(accounts);
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			0,
+			[SELECT COUNT() FROM Account WHERE Name LIKE 'Bulk Acme %'],
+			'All 200 registered Accounts should have been deleted'
+		);
+	}
+
+	@IsTest
+	private static void registerRelationshipShouldPopulateLookupsForManyRecords() {
+		List<Account> accounts = new List<Account>();
+		List<Contact> contacts = new List<Contact>();
+		UnitOfWork uow = new UnitOfWork();
+		for (Integer i = 0; i < 200; i++) {
+			Account acct = new Account(Name = 'Bulk Acme ' + i);
+			Contact con = new Contact(LastName = 'Bulk Coyote ' + i);
+			accounts.add(acct);
+			contacts.add(con);
+			uow.registerNew(acct);
+			uow.registerNew(con);
+			uow.registerRelationship(con, Contact.AccountId, acct);
+		}
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		Map<String, Id> accountIdByName = new Map<String, Id>();
+		for (Account account : [SELECT Id, Name FROM Account WHERE Name LIKE 'Bulk Acme %']) {
+			accountIdByName.put(account.Name, account.Id);
+		}
+		Integer verifiedCount = 0;
+		for (Contact contact : [SELECT LastName, AccountId FROM Contact WHERE LastName LIKE 'Bulk Coyote %']) {
+			String expectedAccountName = 'Bulk Acme ' + contact.LastName.substringAfter('Bulk Coyote ');
+			System.Assert.areEqual(
+				accountIdByName.get(expectedAccountName),
+				contact.AccountId,
+				'Each bulk Contact should be linked to its own paired Account'
+			);
+			verifiedCount++;
+		}
+		System.Assert.areEqual(
+			200,
+			verifiedCount,
+			'All 200 bulk Contacts should have been verified'
+		);
+	}
+
+	@IsTest
+	private static void registerNewWithEmptyListShouldNotThrow() {
+		UnitOfWork uow = new UnitOfWork();
+
+		Test.startTest();
+		uow.registerNew(new List<SObject>());
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.isTrue(true, 'registerNew should not throw when given an empty list');
+	}
+
+	@IsTest
+	private static void registerDirtyWithEmptyListShouldNotThrow() {
+		UnitOfWork uow = new UnitOfWork();
+
+		Test.startTest();
+		uow.registerDirty(new List<SObject>());
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.isTrue(true, 'registerDirty should not throw when given an empty list');
+	}
+
+	@IsTest
+	private static void registerDeletedWithEmptyListShouldNotThrow() {
+		UnitOfWork uow = new UnitOfWork();
+
+		Test.startTest();
+		uow.registerDeleted(new List<SObject>());
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.isTrue(true, 'registerDeleted should not throw when given an empty list');
+	}
+
+	@IsTest
+	private static void commitWorkShouldLogASummaryOfWhatWasCommitted() {
+		insert new LoggerSettings__c(
+			SetupOwnerId = UserInfo.getUserId(),
+			IsEnabled__c = true,
+			LoggingLevel__c = 'FINEST'
+		);
+		Account existing = new Account(Name = 'Acme');
+		insert existing;
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerNew(new Account(Name = 'New Acme'));
+		uow.registerDirty(new Account(Id = existing.Id, Name = 'Updated Acme'));
+
+		Test.startTest();
+		uow.commitWork();
+		Logger.saveLog();
+		Test.stopTest();
+
+		LogEntry__c entry = [
+			SELECT Message__c
+			FROM LogEntry__c
+			WHERE LoggingLevel__c = 'FINE'
+			ORDER BY CreatedDate DESC
+			LIMIT 1
+		];
+		System.Assert.isTrue(
+			entry.Message__c.contains('1 to insert') &&
+			entry.Message__c.contains('1 to update') &&
+			entry.Message__c.contains('0 to delete'),
+			'The summary log should reflect what was registered: ' + entry.Message__c
+		);
+	}
+
+	@IsTest
+	private static void commitWorkShouldLogAndPersistAnErrorEntryOnFailure() {
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerNew(new Contact(LastName = 'Coyote'));
+		uow.registerNew(new Account());
+
+		Test.startTest();
+		try {
+			uow.commitWork();
+			System.Assert.fail('Expected a DmlException');
+		} catch (DmlException e) {
+			// expected - assertions continue below
+		}
+		Test.stopTest();
+
+		List<LogEntry__c> errorEntries = [
+			SELECT Message__c, ExceptionType__c
+			FROM LogEntry__c
+			WHERE LoggingLevel__c = 'ERROR'
+		];
+		System.Assert.areEqual(
+			1,
+			errorEntries.size(),
+			'commitWork should log exactly one ERROR entry on failure'
+		);
+		System.Assert.isTrue(
+			errorEntries[0].Message__c.startsWith('UnitOfWork.commitWork failed'),
+			'The error entry should explain that the UnitOfWork commit failed'
+		);
+		System.Assert.areEqual(
+			'System.DmlException',
+			errorEntries[0].ExceptionType__c,
+			'The error entry should capture the original exception type'
+		);
+	}
 }
