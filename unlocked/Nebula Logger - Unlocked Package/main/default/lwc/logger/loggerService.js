@@ -1,0 +1,254 @@
+//------------------------------------------------------------------------------------------------//
+// This file is part of the Nebula Logger project, released under the MIT License.                //
+// See LICENSE file or go to https://github.com/jongpie/NebulaLogger for full license details.    //
+//------------------------------------------------------------------------------------------------//
+
+import FORM_FACTOR from '@salesforce/client/formFactor';
+import { log as lightningLog } from 'lightning/logger';
+import LogEntryEventBuilder from './logEntryBuilder';
+import LoggerServiceTaskQueue from './loggerServiceTaskQueue';
+import getSettings from '@salesforce/apex/ComponentLogger.getSettings';
+import saveComponentLogEntries from '@salesforce/apex/ComponentLogger.saveComponentLogEntries';
+
+const CURRENT_VERSION_NUMBER = 'v4.19.5';
+
+const CONSOLE_OUTPUT_CONFIG = {
+  messagePrefix: `%c  Nebula Logger ${CURRENT_VERSION_NUMBER}  `,
+  messageFormatting: 'background: #0c598d; color: #fff; font-size: 12px; font-weight:bold;'
+};
+const LOGGING_LEVEL_EMOJIS = {
+  ERROR: '⛔',
+  WARN: '⚠️',
+  INFO: 'ℹ️',
+  DEBUG: '🐞',
+  FINE: '👍',
+  FINER: '👌',
+  FINEST: '🌟'
+};
+
+export class BrowserContext {
+  address = window.location.href;
+  formFactor = FORM_FACTOR;
+  language = window.navigator.language;
+  screenResolution = window.screen.availWidth + ' x ' + window.screen.availHeight;
+  userAgent = window.navigator.userAgent;
+  windowResolution = window.innerWidth + ' x ' + window.innerHeight;
+}
+
+/* eslint-disable @lwc/lwc/no-dupe-class-members */
+export default class LoggerService {
+  static areSystemMessagesEnabled = true;
+  static hasInitialized = false;
+
+  #componentFieldToValue = {};
+  #componentLogEntries = [];
+  #settings;
+  #scenario;
+  #taskQueue = new LoggerServiceTaskQueue();
+
+  constructor() {
+    this._loadSettingsFromServer();
+  }
+
+  // TODO deprecate? Or make it async?
+  getUserSettings() {
+    return this.#settings;
+  }
+
+  /**
+   * @description Sets multiple field values on every generated `LogEntryEvent__e` record
+   * @param  {Object} fieldToValue An object containing the custom field name as a key, with the corresponding value to store.
+   *                      Example: `{"SomeField__c": "some value", "AnotherField__c": "another value"}`
+   */
+  setField(fieldToValue) {
+    if (!!fieldToValue && typeof fieldToValue === 'object' && !Array.isArray(fieldToValue)) {
+      Object.assign(this.#componentFieldToValue, fieldToValue);
+    }
+  }
+
+  setScenario(scenario) {
+    this.#scenario = scenario;
+  }
+
+  exception(message, exception, originStackTraceError) {
+    this.error(message, originStackTraceError).setExceptionDetails(exception);
+    this.saveLog();
+    throw exception;
+  }
+
+  error(message, originStackTraceError) {
+    return this._newEntry('ERROR', message, originStackTraceError);
+  }
+
+  warn(message, originStackTraceError) {
+    return this._newEntry('WARN', message, originStackTraceError);
+  }
+
+  info(message, originStackTraceError) {
+    return this._newEntry('INFO', message, originStackTraceError);
+  }
+
+  debug(message, originStackTraceError) {
+    return this._newEntry('DEBUG', message, originStackTraceError);
+  }
+
+  fine(message, originStackTraceError) {
+    return this._newEntry('FINE', message, originStackTraceError);
+  }
+
+  finer(message, originStackTraceError) {
+    return this._newEntry('FINER', message, originStackTraceError);
+  }
+
+  finest(message, originStackTraceError) {
+    return this._newEntry('FINEST', message, originStackTraceError);
+  }
+
+  getBufferSize() {
+    return this.#componentLogEntries.length;
+  }
+
+  flushBuffer() {
+    this.#componentLogEntries.length = 0;
+  }
+
+  /**
+   * TODO in a future release, return save results from Apex,
+   * including the transaction ID so it can be used as the parent ID
+   * on subsequent saveLog() calls
+   */
+  async saveLog(saveMethodName) {
+    const saveLogTask = async providedSaveMethodName => {
+      if (this.#componentLogEntries.length === 0) {
+        return;
+      }
+
+      const logEntriesToSave = [...this.#componentLogEntries];
+      this.flushBuffer();
+      providedSaveMethodName = providedSaveMethodName ?? this.#settings.defaultSaveMethodName;
+      try {
+        await saveComponentLogEntries({
+          componentLogEntries: logEntriesToSave,
+          saveMethodName: providedSaveMethodName
+        });
+      } catch (error) {
+        if (this.#settings.isConsoleLoggingEnabled === true) {
+          /* eslint-disable-next-line no-console */
+          console.error(error);
+          /* eslint-disable-next-line no-console */
+          console.error(this.#componentLogEntries);
+        }
+        throw error;
+      }
+    };
+
+    this.#taskQueue.enqueueTask(saveLogTask, saveMethodName);
+    await this.#taskQueue.executeTasks();
+  }
+
+  async _loadSettingsFromServer() {
+    const loadSettingsTask = async () => {
+      try {
+        const retrievedSettings = await getSettings();
+        this.#settings = Object.freeze({
+          ...retrievedSettings,
+          supportedLoggingLevels: Object.freeze(retrievedSettings.supportedLoggingLevels),
+          userLoggingLevel: Object.freeze(retrievedSettings.userLoggingLevel)
+        });
+
+        if (!LoggerService.hasInitialized && LoggerService.areSystemMessagesEnabled && this.#settings.isConsoleLoggingEnabled) {
+          this._logToConsole('INFO', 'logger component initialized\n' + JSON.stringify(new BrowserContext(), null, 2));
+        }
+        LoggerService.hasInitialized = true;
+      } catch (error) {
+        /* eslint-disable-next-line no-console */
+        console.error(error);
+        throw error;
+      }
+    };
+
+    this.#taskQueue.enqueueTask(loadSettingsTask);
+    await this.#taskQueue.executeTasks();
+  }
+
+  _newEntry(loggingLevel, message, originStackTraceError) {
+    originStackTraceError = originStackTraceError ?? new Error();
+
+    const logEntryBuilder = new LogEntryEventBuilder(loggingLevel, new BrowserContext())
+      .parseStackTrace(originStackTraceError)
+      .setMessage(message)
+      .setScenario(this.#scenario);
+
+    const logEntry = logEntryBuilder.getComponentLogEntry();
+    Object.assign(logEntry.fieldToValue, this.#componentFieldToValue);
+
+    const loggingLevelCheckTask = providedLoggingLevel => {
+      if (this._meetsUserLoggingLevel(providedLoggingLevel)) {
+        this.#componentLogEntries.push(logEntry);
+
+        if (this.#settings.isConsoleLoggingEnabled) {
+          // Use setTimeout() so any extra fields included in the log entry are added first before printing to the console
+          // eslint-disable-next-line
+          setTimeout(() => {
+            this._logToConsole(logEntry.loggingLevel, logEntry.message, logEntry);
+          }, 1000);
+        }
+        if (this.#settings.isLightningLoggerEnabled) {
+          lightningLog(logEntry);
+        }
+      }
+    };
+
+    this.#taskQueue.enqueueTask(loggingLevelCheckTask, loggingLevel);
+    this.#taskQueue.executeTasks();
+
+    return logEntryBuilder;
+  }
+
+  _meetsUserLoggingLevel(logEntryLoggingLevel) {
+    return this.#settings.isEnabled === true && this.#settings.userLoggingLevel.ordinal <= this.#settings.supportedLoggingLevels[logEntryLoggingLevel];
+  }
+
+  /* eslint-disable no-console */
+  _logToConsole(loggingLevel, message, componentLogEntry) {
+    const consoleLoggingFunction = console[loggingLevel.toLowerCase()] ?? console.debug;
+    const loggingLevelEmoji = LOGGING_LEVEL_EMOJIS[loggingLevel];
+    const qualifiedMessage = `${loggingLevelEmoji} ${loggingLevel}: ${message}`;
+    // Clean up some extra properties for readability
+    const simplifiedLogEntry = !componentLogEntry
+      ? undefined
+      : {
+          customFieldMappings: componentLogEntry.fieldToValue.length === 0 ? undefined : componentLogEntry.fieldToValue,
+          originSource: {
+            metadataType: componentLogEntry.originStackTrace?.metadataType,
+            componentName: componentLogEntry.originStackTrace?.componentName,
+            functionName: componentLogEntry.originStackTrace?.functionName
+          },
+          error: componentLogEntry.error,
+          scenario: componentLogEntry.scenario,
+          tags: componentLogEntry.tags.length === 0 ? undefined : componentLogEntry.tags,
+          timestamp: !componentLogEntry.timestamp
+            ? undefined
+            : {
+                local: new Date(componentLogEntry.timestamp).toLocaleString(),
+                utc: componentLogEntry.timestamp
+              }
+        };
+    if (simplifiedLogEntry?.error?.stackTrace) {
+      simplifiedLogEntry.error.errorSource = {
+        metadataType: simplifiedLogEntry.error.stackTrace.metadataType,
+        componentName: simplifiedLogEntry.error.stackTrace.componentName,
+        functionName: simplifiedLogEntry.error.stackTrace.functionName,
+        className: simplifiedLogEntry.error.stackTrace.className,
+        methodName: simplifiedLogEntry.error.stackTrace.methodName,
+        triggerName: simplifiedLogEntry.error.stackTrace.triggerName,
+        stackTraceString: simplifiedLogEntry.error.stackTrace.stackTraceString
+      };
+      delete simplifiedLogEntry.error.stackTrace;
+    }
+
+    const formattedComponentLogEntryString = !simplifiedLogEntry ? undefined : '\n' + JSON.stringify(simplifiedLogEntry, (_, value) => value ?? undefined, 2);
+
+    consoleLoggingFunction(CONSOLE_OUTPUT_CONFIG.messagePrefix, CONSOLE_OUTPUT_CONFIG.messageFormatting, qualifiedMessage, formattedComponentLogEntryString);
+  }
+}
