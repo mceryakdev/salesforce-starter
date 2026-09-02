@@ -36,6 +36,111 @@ private class UnitOfWorkTest {
 	}
 
 	@IsTest
+	private static void registerDirtyCalledTwiceForSameRecordShouldMergeBothFields() {
+		Account account = new Account(Name = 'Acme', Industry = 'Technology');
+		insert account;
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerDirty(new Account(Id = account.Id, Rating = 'Hot'));
+		uow.registerDirty(new Account(Id = account.Id, Description = 'Follow up'));
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		Account updated = [
+			SELECT Rating, Description
+			FROM Account
+			WHERE Id = :account.Id
+		];
+		System.Assert.areEqual(
+			'Hot',
+			updated.Rating,
+			'The first registerDirty call\'s field should have been applied'
+		);
+		System.Assert.areEqual(
+			'Follow up',
+			updated.Description,
+			'The second registerDirty call\'s field should also have been applied'
+		);
+	}
+
+	@IsTest
+	private static void registerDirtyCalledTwiceForSameFieldShouldUseTheLastValue() {
+		Account account = new Account(Name = 'Acme');
+		insert account;
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerDirty(new Account(Id = account.Id, Rating = 'Warm'));
+		uow.registerDirty(new Account(Id = account.Id, Rating = 'Hot'));
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			'Hot',
+			[SELECT Rating FROM Account WHERE Id = :account.Id].Rating,
+			'The most recently registered value for a field should win'
+		);
+	}
+
+	@IsTest
+	private static void registerDirtyWithoutAnIdShouldThrow() {
+		UnitOfWork uow = new UnitOfWork();
+
+		Test.startTest();
+		Exception caught;
+		try {
+			uow.registerDirty(new Account(Name = 'Acme'));
+		} catch (UnitOfWork.UnitOfWorkException e) {
+			caught = e;
+		}
+		Test.stopTest();
+
+		System.Assert.isNotNull(
+			caught,
+			'registerDirty should require the record to already have an Id'
+		);
+	}
+
+	@IsTest
+	private static void registerDeletedWithoutAnIdShouldThrow() {
+		UnitOfWork uow = new UnitOfWork();
+
+		Test.startTest();
+		Exception caught;
+		try {
+			uow.registerDeleted(new Account(Name = 'Acme'));
+		} catch (UnitOfWork.UnitOfWorkException e) {
+			caught = e;
+		}
+		Test.stopTest();
+
+		System.Assert.isNotNull(
+			caught,
+			'registerDeleted should require the record to already have an Id'
+		);
+	}
+
+	@IsTest
+	private static void registerDeletedCalledTwiceForSameRecordShouldNotThrow() {
+		Account account = new Account(Name = 'Acme');
+		insert account;
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerDeleted(account);
+		uow.registerDeleted(account);
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			0,
+			[SELECT COUNT() FROM Account WHERE Id = :account.Id],
+			'The Account should have been deleted exactly once, without a duplicate-id error'
+		);
+	}
+
+	@IsTest
 	private static void registerDeletedShouldDeleteRecords() {
 		Account account = new Account(Name = 'Acme');
 		insert account;

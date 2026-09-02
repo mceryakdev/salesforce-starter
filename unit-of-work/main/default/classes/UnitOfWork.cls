@@ -42,6 +42,8 @@
 public inherited sharing class UnitOfWork {
 	@TestVisible
 	private static final String ALREADY_COMMITTED_MESSAGE = 'This UnitOfWork has already been committed. Create a new instance to register more work.';
+	@TestVisible
+	private static final String MISSING_ID_MESSAGE = 'This record must have an Id to be registered as dirty or deleted. Use registerNew for records that have not been inserted yet.';
 
 	@TestVisible
 	private static UnitOfWork current;
@@ -50,9 +52,10 @@ public inherited sharing class UnitOfWork {
 
 	@TestVisible
 	private List<Schema.SObjectType> sObjectTypeOrder = new List<Schema.SObjectType>();
+	private Set<Schema.SObjectType> trackedTypes = new Set<Schema.SObjectType>();
 	private Map<Schema.SObjectType, List<SObject>> newRecordsByType = new Map<Schema.SObjectType, List<SObject>>();
-	private Map<Schema.SObjectType, List<SObject>> dirtyRecordsByType = new Map<Schema.SObjectType, List<SObject>>();
-	private Map<Schema.SObjectType, List<SObject>> deletedRecordsByType = new Map<Schema.SObjectType, List<SObject>>();
+	private Map<Schema.SObjectType, Map<Id, SObject>> dirtyRecordsByType = new Map<Schema.SObjectType, Map<Id, SObject>>();
+	private Map<Schema.SObjectType, Map<Id, SObject>> deletedRecordsByType = new Map<Schema.SObjectType, Map<Id, SObject>>();
 	private Map<Schema.SObjectType, List<Relationship>> relationshipsByType = new Map<Schema.SObjectType, List<Relationship>>();
 
 	/**
@@ -95,13 +98,17 @@ public inherited sharing class UnitOfWork {
 	public void registerNew(List<SObject> records) {
 		this.assertNotCommitted();
 		for (SObject record : records) {
-			this.trackType(record.getSObjectType());
-			this.addToGroup(this.newRecordsByType, record);
+			Schema.SObjectType sObjectType = record.getSObjectType();
+			this.trackType(sObjectType);
+			this.addToGroup(this.newRecordsByType, sObjectType, record);
 		}
 	}
 
 	/**
-	 * @description Registers a record to be updated when `commitWork` is called.
+	 * @description Registers a record to be updated when `commitWork` is called. The record must
+	 * already have an Id. Registering the same Id more than once merges the populated fields from
+	 * every call onto a single record, so unrelated fields set in separate calls are all included
+	 * in one `update` - if the same field is set more than once, the last call wins.
 	 * @param record The record to update.
 	 */
 	public void registerDirty(SObject record) {
@@ -109,18 +116,21 @@ public inherited sharing class UnitOfWork {
 	}
 
 	/**
-	 * @description Registers a list of records to be updated when `commitWork` is called.
+	 * @description Registers a list of records to be updated when `commitWork` is called. See
+	 * `registerDirty(SObject)` for how repeated registrations of the same Id are merged.
 	 * @param records The records to update.
 	 */
 	public void registerDirty(List<SObject> records) {
 		this.assertNotCommitted();
 		for (SObject record : records) {
-			this.addToGroup(this.dirtyRecordsByType, record);
+			this.assertHasId(record);
+			this.mergeIntoDirty(record);
 		}
 	}
 
 	/**
-	 * @description Registers a record to be deleted when `commitWork` is called.
+	 * @description Registers a record to be deleted when `commitWork` is called. The record must
+	 * already have an Id. Registering the same Id more than once has no additional effect.
 	 * @param record The record to delete.
 	 */
 	public void registerDeleted(SObject record) {
@@ -128,14 +138,18 @@ public inherited sharing class UnitOfWork {
 	}
 
 	/**
-	 * @description Registers a list of records to be deleted when `commitWork` is called.
+	 * @description Registers a list of records to be deleted when `commitWork` is called. See
+	 * `registerDeleted(SObject)` for how repeated registrations of the same Id are handled.
 	 * @param records The records to delete.
 	 */
 	public void registerDeleted(List<SObject> records) {
 		this.assertNotCommitted();
 		for (SObject record : records) {
-			this.trackType(record.getSObjectType());
-			this.addToGroup(this.deletedRecordsByType, record);
+			this.assertHasId(record);
+			Schema.SObjectType sObjectType = record.getSObjectType();
+			this.trackType(sObjectType);
+			this.recordsByIdFor(this.deletedRecordsByType, sObjectType)
+				.put(record.Id, record);
 		}
 	}
 
@@ -156,11 +170,12 @@ public inherited sharing class UnitOfWork {
 	) {
 		this.assertNotCommitted();
 		Schema.SObjectType sObjectType = record.getSObjectType();
-		if (!this.relationshipsByType.containsKey(sObjectType)) {
-			this.relationshipsByType.put(sObjectType, new List<Relationship>());
+		List<Relationship> relationships = this.relationshipsByType.get(sObjectType);
+		if (relationships == null) {
+			relationships = new List<Relationship>();
+			this.relationshipsByType.put(sObjectType, relationships);
 		}
-		this.relationshipsByType.get(sObjectType)
-			.add(new Relationship(record, relatedToField, relatedTo));
+		relationships.add(new Relationship(record, relatedToField, relatedTo));
 	}
 
 	/**
@@ -195,20 +210,20 @@ public inherited sharing class UnitOfWork {
 	}
 
 	private void updateDirtyRecords() {
-		for (List<SObject> records : this.dirtyRecordsByType.values()) {
-			update records;
+		for (Map<Id, SObject> recordsById : this.dirtyRecordsByType.values()) {
+			update recordsById.values();
 		}
 	}
 
 	private void deleteRecordsInReverseOrder() {
 		for (Integer i = this.sObjectTypeOrder.size() - 1; i >= 0; i--) {
-			List<SObject> records = this.deletedRecordsByType.get(
+			Map<Id, SObject> recordsById = this.deletedRecordsByType.get(
 				this.sObjectTypeOrder[i]
 			);
-			if (records == null) {
+			if (recordsById == null) {
 				continue;
 			}
-			delete records;
+			delete recordsById.values();
 		}
 	}
 
@@ -223,29 +238,62 @@ public inherited sharing class UnitOfWork {
 	}
 
 	private void addToGroup(
-		Map<Schema.SObjectType, List<SObject>> group,
+		Map<Schema.SObjectType, List<SObject>> recordsByType,
+		Schema.SObjectType sObjectType,
 		SObject record
 	) {
-		Schema.SObjectType sObjectType = record.getSObjectType();
-		if (!group.containsKey(sObjectType)) {
-			group.put(sObjectType, new List<SObject>());
+		List<SObject> records = recordsByType.get(sObjectType);
+		if (records == null) {
+			records = new List<SObject>();
+			recordsByType.put(sObjectType, records);
 		}
-		group.get(sObjectType).add(record);
+		records.add(record);
+	}
+
+	private void mergeIntoDirty(SObject record) {
+		Map<Id, SObject> recordsById = this.recordsByIdFor(
+			this.dirtyRecordsByType,
+			record.getSObjectType()
+		);
+		SObject existingRecord = recordsById.get(record.Id);
+		if (existingRecord == null) {
+			recordsById.put(record.Id, record);
+			return;
+		}
+		for (String fieldName : record.getPopulatedFieldsAsMap().keySet()) {
+			existingRecord.put(fieldName, record.get(fieldName));
+		}
+	}
+
+	private Map<Id, SObject> recordsByIdFor(
+		Map<Schema.SObjectType, Map<Id, SObject>> recordsByType,
+		Schema.SObjectType sObjectType
+	) {
+		Map<Id, SObject> recordsById = recordsByType.get(sObjectType);
+		if (recordsById == null) {
+			recordsById = new Map<Id, SObject>();
+			recordsByType.put(sObjectType, recordsById);
+		}
+		return recordsById;
 	}
 
 	private void trackType(Schema.SObjectType sObjectType) {
-		if (
-			this.newRecordsByType.containsKey(sObjectType) ||
-			this.deletedRecordsByType.containsKey(sObjectType)
-		) {
+		if (this.trackedTypes.contains(sObjectType)) {
 			return;
 		}
+		this.trackedTypes.add(sObjectType);
 		this.sObjectTypeOrder.add(sObjectType);
 	}
 
 	private void assertNotCommitted() {
 		if (this.committed) {
 			throw new UnitOfWorkException(ALREADY_COMMITTED_MESSAGE);
+		}
+	}
+
+	private void assertHasId(SObject record) {
+		if (record.Id == null) {
+			throw new UnitOfWorkException(MISSING_ID_MESSAGE);
 		}
 	}
 
