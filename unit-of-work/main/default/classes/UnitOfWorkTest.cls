@@ -546,6 +546,82 @@ private class UnitOfWorkTest {
 	}
 
 	@IsTest
+	private static void commitWorkWithNoRegisteredWorkShouldNotConsumeADmlStatement() {
+		UnitOfWork uow = new UnitOfWork();
+		Integer dmlStatementsBefore = Limits.getDmlStatements();
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			dmlStatementsBefore,
+			Limits.getDmlStatements(),
+			'An empty commit should skip the savepoint, which would otherwise cost a DML statement'
+		);
+	}
+
+	@IsTest
+	private static void registerRelationshipShouldThrowWhenTheRelatedRecordHasNoId() {
+		UnitOfWork uow = new UnitOfWork();
+		Account neverRegisteredParent = new Account(Name = 'Acme');
+		Contact child = new Contact(LastName = 'Coyote');
+		uow.registerNew(child);
+		uow.registerRelationship(child, Contact.AccountId, neverRegisteredParent);
+
+		Test.startTest();
+		Exception caught;
+		try {
+			uow.commitWork();
+		} catch (Exception e) {
+			caught = e;
+		}
+		Test.stopTest();
+
+		System.Assert.isInstanceOfType(
+			caught,
+			UnitOfWork.UnitOfWorkException.class,
+			'An unresolvable relationship should fail loudly instead of silently leaving the lookup null'
+		);
+		System.Assert.isTrue(
+			caught.getMessage().contains('AccountId'),
+			'The message should name the field that could not be populated: ' + caught.getMessage()
+		);
+		System.Assert.areEqual(
+			0,
+			[SELECT COUNT() FROM Contact WHERE LastName = 'Coyote'],
+			'The failed commit should have rolled the Contact back'
+		);
+	}
+
+	@IsTest
+	private static void registerRelationshipShouldThrowWhenTheParentIsRegisteredAfterTheChild() {
+		UnitOfWork uow = new UnitOfWork();
+		Account parent = new Account(Name = 'Acme');
+		Contact child = new Contact(LastName = 'Coyote');
+		// Registration order decides insert order, so registering the child's type first means the
+		// parent has no Id yet when the child is inserted.
+		uow.registerNew(child);
+		uow.registerNew(parent);
+		uow.registerRelationship(child, Contact.AccountId, parent);
+
+		Test.startTest();
+		Exception caught;
+		try {
+			uow.commitWork();
+		} catch (Exception e) {
+			caught = e;
+		}
+		Test.stopTest();
+
+		System.Assert.isInstanceOfType(
+			caught,
+			UnitOfWork.UnitOfWorkException.class,
+			'Registering the parent after the child should fail loudly, not write a null lookup'
+		);
+	}
+
+	@IsTest
 	private static void commitWorkShouldLogASummaryOfWhatWasCommitted() {
 		insert new LoggerSettings__c(
 			SetupOwnerId = UserInfo.getUserId(),

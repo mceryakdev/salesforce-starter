@@ -23,8 +23,19 @@
  * DML directly.
  */
 public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase implements TriggerAction.BeforeInsert, TriggerAction.AfterInsert, TriggerAction.BeforeUpdate, TriggerAction.AfterUpdate, TriggerAction.BeforeDelete, TriggerAction.AfterDelete, TriggerAction.AfterUndelete {
+	/**
+	 * This has to be per-instance, not static. `MetadataTriggerHandler` inherits `TriggerBase`'s
+	 * memoized `sObjectName`, which it uses to look up that object's `Trigger_Action__mdt` records.
+	 * Sharing one instance across a transaction would pin every later trigger to the first trigger's
+	 * object - and this framework makes that routine, since committing the Unit of Work at the end of
+	 * an Account trigger inserts child records whose own triggers then run in the same transaction.
+	 * Stock usage (`new MetadataTriggerHandler().run()`) gets a fresh instance per trigger; so do we.
+	 */
 	@TestVisible
-	private static MetadataTriggerHandler metadataTriggerHandler = new MetadataTriggerHandler();
+	private final MetadataTriggerHandler metadataTriggerHandler = new MetadataTriggerHandler();
+
+	// Safe to share: `FinalizerHandler` doesn't extend `TriggerBase` and holds no per-object state,
+	// so reusing it lets its `DML_Finalizer__mdt` lookup be read once per transaction.
 	@TestVisible
 	private static FinalizerHandler finalizerHandler = new FinalizerHandler();
 
@@ -33,7 +44,7 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	 * @param triggerNew The list of new records that are being inserted.
 	 */
 	public void beforeInsert(List<SObject> triggerNew) {
-		metadataTriggerHandler.beforeInsert(triggerNew);
+		this.metadataTriggerHandler.beforeInsert(triggerNew);
 	}
 
 	/**
@@ -41,7 +52,7 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	 * @param triggerNew The list of new records that were inserted.
 	 */
 	public void afterInsert(List<SObject> triggerNew) {
-		metadataTriggerHandler.afterInsert(triggerNew);
+		this.metadataTriggerHandler.afterInsert(triggerNew);
 	}
 
 	/**
@@ -50,7 +61,7 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	 * @param triggerOld The list of old records that are being updated.
 	 */
 	public void beforeUpdate(List<SObject> triggerNew, List<SObject> triggerOld) {
-		metadataTriggerHandler.beforeUpdate(triggerNew, triggerOld);
+		this.metadataTriggerHandler.beforeUpdate(triggerNew, triggerOld);
 	}
 
 	/**
@@ -59,7 +70,7 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	 * @param triggerOld The list of old records before the update.
 	 */
 	public void afterUpdate(List<SObject> triggerNew, List<SObject> triggerOld) {
-		metadataTriggerHandler.afterUpdate(triggerNew, triggerOld);
+		this.metadataTriggerHandler.afterUpdate(triggerNew, triggerOld);
 	}
 
 	/**
@@ -67,7 +78,7 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	 * @param triggerOld The list of records that are being deleted.
 	 */
 	public void beforeDelete(List<SObject> triggerOld) {
-		metadataTriggerHandler.beforeDelete(triggerOld);
+		this.metadataTriggerHandler.beforeDelete(triggerOld);
 	}
 
 	/**
@@ -75,7 +86,7 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	 * @param triggerOld The list of records that were deleted.
 	 */
 	public void afterDelete(List<SObject> triggerOld) {
-		metadataTriggerHandler.afterDelete(triggerOld);
+		this.metadataTriggerHandler.afterDelete(triggerOld);
 	}
 
 	/**
@@ -83,7 +94,7 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	 * @param triggerNew The list of records that were undeleted.
 	 */
 	public void afterUndelete(List<SObject> triggerNew) {
-		metadataTriggerHandler.afterUndelete(triggerNew);
+		this.metadataTriggerHandler.afterUndelete(triggerNew);
 	}
 
 	/**

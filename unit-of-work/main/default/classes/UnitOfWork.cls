@@ -47,6 +47,8 @@ public inherited sharing class UnitOfWork {
 	private static final String ALREADY_COMMITTED_MESSAGE = 'This UnitOfWork has already been committed. Create a new instance to register more work.';
 	@TestVisible
 	private static final String MISSING_ID_MESSAGE = 'This record must have an Id to be registered as dirty or deleted. Use registerNew for records that have not been inserted yet.';
+	@TestVisible
+	private static final String UNRESOLVED_RELATIONSHIP_MESSAGE = 'Cannot populate {0}: the related record still has no Id when the record referencing it is about to be inserted. Register the related record with registerNew before registering the record that points at it - types are inserted in the order they were first registered.';
 
 	@TestVisible
 	private static UnitOfWork current;
@@ -190,15 +192,23 @@ public inherited sharing class UnitOfWork {
 	public void commitWork() {
 		this.assertNotCommitted();
 		this.committed = true;
+		Integer recordsToInsert = this.countRecords(this.newRecordsByType);
+		Integer recordsToUpdate = this.countRecords(this.dirtyRecordsByType);
+		Integer recordsToDelete = this.countRecords(this.deletedRecordsByType);
 		Logger.fine(
 			'UnitOfWork.commitWork starting: ' +
-			this.countRecords(this.newRecordsByType) +
+			recordsToInsert +
 			' to insert, ' +
-			this.countRecords(this.dirtyRecordsByType) +
+			recordsToUpdate +
 			' to update, ' +
-			this.countRecords(this.deletedRecordsByType) +
+			recordsToDelete +
 			' to delete'
 		);
+		if (recordsToInsert + recordsToUpdate + recordsToDelete == 0) {
+			// Nothing to do, and `Database.setSavepoint()` costs a DML statement against the same
+			// governor limit as the DML itself - so an empty commit should stay genuinely free.
+			return;
+		}
 		Savepoint savepoint = Database.setSavepoint();
 		try {
 			this.insertNewRecords();
@@ -344,6 +354,14 @@ public inherited sharing class UnitOfWork {
 		}
 
 		private void resolve() {
+			if (this.relatedTo.Id == null) {
+				throw new UnitOfWorkException(
+					String.format(
+						UNRESOLVED_RELATIONSHIP_MESSAGE,
+						new List<String>{ String.valueOf(this.relatedToField) }
+					)
+				);
+			}
 			this.record.put(this.relatedToField, this.relatedTo.Id);
 		}
 	}

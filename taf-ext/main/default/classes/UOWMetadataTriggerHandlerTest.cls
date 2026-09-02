@@ -33,10 +33,8 @@ private class UOWMetadataTriggerHandlerTest {
 	@IsTest
 	private static void everyTriggerContextShouldDelegateToMetadataTriggerHandlerWithoutError() {
 		Account fakeAccount = new Account(Name = 'Acme');
-		UOWMetadataTriggerHandler.metadataTriggerHandler.triggerNew = new List<SObject>{
-			fakeAccount
-		};
 		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
+		handler.metadataTriggerHandler.triggerNew = new List<SObject>{ fakeAccount };
 
 		Test.startTest();
 		handler.beforeInsert(new List<SObject>{ fakeAccount });
@@ -57,6 +55,40 @@ private class UOWMetadataTriggerHandlerTest {
 		System.Assert.isTrue(
 			true,
 			'Every Trigger Action context should delegate to MetadataTriggerHandler without throwing'
+		);
+	}
+
+	@IsTest
+	private static void eachHandlerShouldResolveItsOwnSObjectRatherThanSharingOne() {
+		// `MetadataTriggerHandler` memoizes the sObject it is operating on, and uses it to look up
+		// that object's Trigger_Action__mdt records. If handlers shared one of those, the second
+		// trigger in a transaction would run the first trigger's actions - which is exactly what
+		// happens here, because committing the Unit of Work inserts records that fire more triggers.
+		UOWMetadataTriggerHandler accountHandler = new UOWMetadataTriggerHandler();
+		accountHandler.metadataTriggerHandler.triggerNew = new List<SObject>{
+			new Account(Name = 'Acme')
+		};
+		accountHandler.beforeInsert(accountHandler.metadataTriggerHandler.triggerNew);
+
+		UOWMetadataTriggerHandler contactHandler = new UOWMetadataTriggerHandler();
+		contactHandler.metadataTriggerHandler.triggerNew = new List<SObject>{
+			new Contact(LastName = 'Coyote')
+		};
+
+		System.Assert.areNotEqual(
+			accountHandler.metadataTriggerHandler,
+			contactHandler.metadataTriggerHandler,
+			'Each handler needs its own MetadataTriggerHandler instance'
+		);
+		System.Assert.areEqual(
+			'Account',
+			accountHandler.metadataTriggerHandler.sObjectName,
+			'The first handler should have resolved Account'
+		);
+		System.Assert.areEqual(
+			'Contact',
+			contactHandler.metadataTriggerHandler.sObjectName,
+			'The second handler should resolve its own sObject. If this reports Account, the handlers are sharing a MetadataTriggerHandler and the second trigger would run the first trigger\'s actions'
 		);
 	}
 
