@@ -52,7 +52,7 @@ same top-level DML statement.
 
 `TriggerBase` already tracks that moment (it maintains a context stack and counts remaining DML
 rows) and exposes it as `finalizeDmlOperation()`. `MetadataTriggerHandler` can't be subclassed, so
-`TriggerActionUnitOfWorkHandler` implements the Trigger Action interfaces itself and forwards every
+`UOWMetadataTriggerHandler` implements the Trigger Action interfaces itself and forwards every
 call to an internal `MetadataTriggerHandler` - none of the metadata-driven dispatch, bypass, or
 permission behavior changes - while overriding `finalizeDmlOperation()` to commit the Unit of Work
 and flush the log buffer exactly once.
@@ -163,14 +163,14 @@ different field on the same record without clobbering each other.
 
 ### `taf-ext` in a trigger
 
-Use `TriggerActionUnitOfWorkHandler` where you'd normally use `MetadataTriggerHandler`:
+Use `UOWMetadataTriggerHandler` where you'd normally use `MetadataTriggerHandler`:
 
 ```apex
 trigger AccountTrigger on Account(
 	before insert, after insert, before update, after update,
 	before delete, after delete, after undelete
 ) {
-	new TriggerActionUnitOfWorkHandler().run();
+	new UOWMetadataTriggerHandler().run();
 }
 ```
 
@@ -257,7 +257,7 @@ works by assigning the mock to the field `UnitOfWork.getCurrent()` reads from.
 
 ```
 AccountTrigger
-  └─ TriggerActionUnitOfWorkHandler.run()
+  └─ UOWMetadataTriggerHandler.run()
        ├─ forwards each context to MetadataTriggerHandler
        │    └─ your Trigger Actions → UnitOfWork.getCurrent().registerNew(...)
        └─ finalizeDmlOperation()          ← runs once, at the true end of the run
@@ -280,7 +280,7 @@ are deployed.
   logs an `ERROR` with the full exception, saves it immediately, and rethrows the original exception
   unchanged. Because that entry is published as a platform event, it survives the rollback that just
   happened - the DML disappears, the record of why does not.
-- `TriggerActionUnitOfWorkHandler.finalizeDmlOperation()` logs an `ERROR` if a `DmlFinalizer` throws,
+- `UOWMetadataTriggerHandler.finalizeDmlOperation()` logs an `ERROR` if a `DmlFinalizer` throws,
   buffers a `FINE` entry when the run finishes cleanly, and always flushes the buffer in a `finally`
   block, so entries buffered by any Trigger Action during the run are saved either way.
 
@@ -291,12 +291,12 @@ to `ERROR` or `WARN` - turn the level up when you need to trace a transaction.
 
 ```bash
 sf apex run test --target-org <your-org-or-alias> \
-  --class-names UnitOfWorkTest --class-names TriggerActionUnitOfWorkHandlerTest \
+  --class-names UnitOfWorkTest --class-names UOWMetadataTriggerHandlerTest \
   --class-names MockTest --class-names MockUnitOfWorkTest \
   --code-coverage
 ```
 
-62 tests, with `UnitOfWork` and `TriggerActionUnitOfWorkHandler` both at 100% coverage - including
+62 tests, with `UnitOfWork` and `UOWMetadataTriggerHandler` both at 100% coverage - including
 bulk (200-record) registration, dirty-record merging, empty-list edge cases, rollback behavior, and
 the log entries produced on the success and failure paths. The `Mock` classes are `@IsTest`, so they
 are excluded from coverage by design.

@@ -15,14 +15,14 @@
  *     before insert, after insert, before update, after update,
  *     before delete, after delete, after undelete
  * ) {
- *     new TriggerActionUnitOfWorkHandler().run();
+ *     new UOWMetadataTriggerHandler().run();
  * }
  * ```
  *
  * Trigger Actions can then call `UnitOfWork.getCurrent()` to register work instead of performing
  * DML directly.
  */
-public inherited sharing class TriggerActionUnitOfWorkHandler extends TriggerBase implements TriggerAction.BeforeInsert, TriggerAction.AfterInsert, TriggerAction.BeforeUpdate, TriggerAction.AfterUpdate, TriggerAction.BeforeDelete, TriggerAction.AfterDelete, TriggerAction.AfterUndelete {
+public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase implements TriggerAction.BeforeInsert, TriggerAction.AfterInsert, TriggerAction.BeforeUpdate, TriggerAction.AfterUpdate, TriggerAction.BeforeDelete, TriggerAction.AfterDelete, TriggerAction.AfterUndelete {
 	@TestVisible
 	private static MetadataTriggerHandler metadataTriggerHandler = new MetadataTriggerHandler();
 	@TestVisible

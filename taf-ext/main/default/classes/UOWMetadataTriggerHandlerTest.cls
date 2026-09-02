@@ -1,9 +1,9 @@
 @IsTest(isParallel=true)
-private class TriggerActionUnitOfWorkHandlerTest {
+private class UOWMetadataTriggerHandlerTest {
 	@IsTest
 	private static void finalizeDmlOperationShouldCommitTheCurrentUnitOfWork() {
 		UnitOfWork.getCurrent().registerNew(new Account(Name = 'Acme'));
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 
 		Test.startTest();
 		handler.finalizeDmlOperation();
@@ -18,7 +18,7 @@ private class TriggerActionUnitOfWorkHandlerTest {
 
 	@IsTest
 	private static void finalizeDmlOperationShouldNotThrowWhenNoWorkIsRegistered() {
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 
 		Test.startTest();
 		handler.finalizeDmlOperation();
@@ -33,10 +33,10 @@ private class TriggerActionUnitOfWorkHandlerTest {
 	@IsTest
 	private static void everyTriggerContextShouldDelegateToMetadataTriggerHandlerWithoutError() {
 		Account fakeAccount = new Account(Name = 'Acme');
-		TriggerActionUnitOfWorkHandler.metadataTriggerHandler.triggerNew = new List<SObject>{
+		UOWMetadataTriggerHandler.metadataTriggerHandler.triggerNew = new List<SObject>{
 			fakeAccount
 		};
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 
 		Test.startTest();
 		handler.beforeInsert(new List<SObject>{ fakeAccount });
@@ -65,7 +65,7 @@ private class TriggerActionUnitOfWorkHandlerTest {
 		for (Integer i = 0; i < 200; i++) {
 			UnitOfWork.getCurrent().registerNew(new Account(Name = 'Bulk Acme ' + i));
 		}
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 
 		Test.startTest();
 		handler.finalizeDmlOperation();
@@ -80,8 +80,8 @@ private class TriggerActionUnitOfWorkHandlerTest {
 
 	@IsTest
 	private static void finalizeDmlOperationShouldLogAndRethrowWhenAFinalizerFails() {
-		TriggerActionUnitOfWorkHandler.finalizerHandler = new ThrowingFinalizerHandler();
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler.finalizerHandler = new ThrowingFinalizerHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 
 		Test.startTest();
 		Exception caught;
@@ -116,8 +116,8 @@ private class TriggerActionUnitOfWorkHandlerTest {
 	private static void finalizeDmlOperationShouldNotRunFinalizersWhenCommitFails() {
 		UnitOfWork.getCurrent().registerNew(new Account());
 		SpyFinalizerHandler spy = new SpyFinalizerHandler();
-		TriggerActionUnitOfWorkHandler.finalizerHandler = spy;
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler.finalizerHandler = spy;
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 
 		Test.startTest();
 		try {
@@ -136,7 +136,7 @@ private class TriggerActionUnitOfWorkHandlerTest {
 
 	@IsTest
 	private static void describeTriggerContextShouldReturnPlaceholderOutsideOfTriggerContext() {
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 
 		System.Assert.areEqual(
 			'no trigger context',
@@ -147,7 +147,7 @@ private class TriggerActionUnitOfWorkHandlerTest {
 
 	@IsTest
 	private static void describeTriggerContextShouldDescribeSObjectAndContextFromTriggerNew() {
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 		handler.triggerNew = new List<SObject>{ new Account(Name = 'Acme') };
 		handler.context = System.TriggerOperation.AFTER_INSERT;
 
@@ -160,7 +160,7 @@ private class TriggerActionUnitOfWorkHandlerTest {
 
 	@IsTest
 	private static void describeTriggerContextShouldDescribeSObjectAndContextFromTriggerOldWhenTriggerNewIsNull() {
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 		handler.triggerOld = new List<SObject>{ new Account(Name = 'Acme') };
 		handler.context = System.TriggerOperation.BEFORE_DELETE;
 
@@ -173,7 +173,7 @@ private class TriggerActionUnitOfWorkHandlerTest {
 
 	@IsTest
 	private static void describeTriggerContextShouldReturnPlaceholderWhenTriggerNewIsEmptyAndTriggerOldIsNull() {
-		TriggerActionUnitOfWorkHandler handler = new TriggerActionUnitOfWorkHandler();
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
 		handler.triggerNew = new List<SObject>();
 
 		System.Assert.areEqual(
