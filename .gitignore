@@ -24,6 +24,11 @@ yarn-error.log*
 # Dependency directories
 node_modules/
 
+# Local, reference-only retrievals of already-installed unlocked packages (Trigger Actions
+# Framework, Nebula Logger). Regenerate with `sf project retrieve start --package-name "..."` -
+# see README.md. Not part of this repo's own source, so not tracked here.
+/unlocked/
+
 # ApexPMD cache
 .pmdCache
 
