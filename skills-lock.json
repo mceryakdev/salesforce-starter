@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "nebula-logger-best-practices": {
+      "source": "jongpie/NebulaLogger",
+      "sourceType": "github",
+      "skillPath": "skills/nebula-logger-best-practices/SKILL.md",
+      "computedHash": "3e5109c31e4712db5fd4ad23de40a3e68cb7bcab5d2063113bfab816c5b15f61"
+    },
+    "nebula-logger-console": {
+      "source": "jongpie/NebulaLogger",
+      "sourceType": "github",
+      "skillPath": "skills/nebula-logger-console/SKILL.md",
+      "computedHash": "517a38f44b45d173ea3f298c6cee13a578d147eb41478f824358c2a8f4e3a187"
+    },
+    "nebula-logger-install": {
+      "source": "jongpie/NebulaLogger",
+      "sourceType": "github",
+      "skillPath": "skills/nebula-logger-install/SKILL.md",
+      "computedHash": "dfbd9b25b2bb8414ec797b10697a726fe220e2059533263bbd04b15eb01b9839"
+    },
+    "nebula-logger-instrumentation": {
+      "source": "jongpie/NebulaLogger",
+      "sourceType": "github",
+      "skillPath": "skills/nebula-logger-instrumentation/SKILL.md",
+      "computedHash": "b2eafc8498387828c25a6a20ecec73680fd7244ca36b26a2e28e5fc239bfc422"
+    },
+    "nebula-logger-plugin-development": {
+      "source": "jongpie/NebulaLogger",
+      "sourceType": "github",
+      "skillPath": "skills/nebula-logger-plugin-development/SKILL.md",
+      "computedHash": "c13b3ace633aecb6ea4c0f96c27fe43f249c94d4d19397da3007be3bdae29f7c"
+    },
+    "nebula-logger-purging-and-retention": {
+      "source": "jongpie/NebulaLogger",
+      "sourceType": "github",
+      "skillPath": "skills/nebula-logger-purging-and-retention/SKILL.md",
+      "computedHash": "94608c9f70e783933f7391a454b6e549a2d90c245f2223cd2f09f70a46589903"
+    },
+    "nebula-logger-testing-your-code": {
+      "source": "jongpie/NebulaLogger",
+      "sourceType": "github",
+      "skillPath": "skills/nebula-logger-testing-your-code/SKILL.md",
+      "computedHash": "9a7f82a0b13447ee3b784efe3d7c23bcb00067368545a08fd29b75db23d5c08b"
+    }
+  }
+}
