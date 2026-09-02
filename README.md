@@ -1,10 +1,10 @@
 # Salesforce Trigger Framework Starter
 
-A small Salesforce Apex foundation for trigger handling, batched DML, and observability - built as
-two open-source, unlocked-package-free companions to two existing open-source unlocked packages:
-[Trigger Actions Framework](https://github.com/mitchspano/apex-trigger-actions-framework) and
-[Nebula Logger](https://github.com/jongpie/NebulaLogger). This repo, and the two packages it
-publishes (`unit-of-work` and `taf-ext`), are open source.
+A small Salesforce Apex foundation for trigger handling, batched DML, and observability. It builds
+on top of two existing open-source unlocked packages -
+[Trigger Actions Framework](https://github.com/mitchspano/trigger-actions-framework) and
+[Nebula Logger](https://github.com/jongpie/NebulaLogger) - and adds two more source packages of
+its own: `unit-of-work` and `taf-ext`. This repo, and those two packages, are open source.
 
 ## What's in this repo
 
