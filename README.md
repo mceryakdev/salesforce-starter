@@ -10,7 +10,7 @@ its own: `unit-of-work` and `taf-ext`. This repo, and those two packages, are op
 
 | Directory        | What it is                                                                                                                                                                          | Deploy it?                                          |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------- |
-| `unlocked/`       | Reference-only copies of the two unlocked packages this project depends on, retrieved from an org for local browsing.                                                                | **No** - excluded via `.forceignore`. Don't edit these; they're not source, they're a read-only mirror of what's installed. |
+| `unlocked/`       | Not included in this repo. An optional, local-only spot to retrieve reference copies of the two unlocked packages for browsing - see below. Gitignored and excluded from deploys.    | **No** - gitignored and excluded via `.forceignore`. If you retrieve one, don't edit it; it's a read-only mirror of what's installed, not source. |
 | `unit-of-work/`   | A small, trigger-agnostic Unit of Work for batching DML (insert/update/delete) into one all-or-nothing commit. No dependency on Trigger Actions Framework - usable from any Apex.    | Yes                                                  |
 | `taf-ext/`        | The glue layer: a drop-in trigger handler that commits the current `UnitOfWork` at the true end of a trigger run and logs the outcome via Nebula Logger.                              | Yes                                                  |
 | `force-app/`      | Default package directory for your own org-specific metadata.                                                                                                                          | Yes (project-specific)                               |
@@ -42,8 +42,19 @@ Install the two unlocked packages **before** deploying anything from this repo.
   (swap in `test.salesforce.com` for a sandbox). See its own documentation for
   `Trigger_Action__mdt` / `sObject_Trigger_Setting__mdt` configuration - not duplicated here.
 
-A read-only copy of both packages' metadata is vendored under `unlocked/` for local reference
-(browsing classes, objects, fields, etc. without leaving the repo).
+This repo doesn't vendor either package's source - they're big (Nebula Logger alone is 1000+
+components) and each already has its own upstream repo as the source of truth. If you want a local,
+read-only copy to browse alongside this repo, retrieve them from an org that has them installed:
+
+```bash
+mkdir -p unlocked
+sf project retrieve start --target-org <your-org-or-alias> --package-name "Trigger Actions Framework"
+sf project retrieve start --target-org <your-org-or-alias> --package-name "Nebula Logger - Unlocked Package"
+mv "Trigger Actions Framework" "Nebula Logger - Unlocked Package" unlocked/
+```
+
+`unlocked/` is gitignored and excluded from all deploy/retrieve/push operations via `.forceignore`,
+so retrieving it locally never affects deploys or gets committed.
 
 ### 2. Deploy `unit-of-work` and `taf-ext`
 
