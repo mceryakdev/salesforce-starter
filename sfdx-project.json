@@ -5,6 +5,10 @@
       "default": true
     },
     {
+      "path": "unit-of-work",
+      "default": false
+    },
+    {
       "path": "taf-ext",
       "default": false
     }
