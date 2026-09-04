@@ -1,7 +1,21 @@
 @IsTest(isParallel=true)
 private class UnitOfWorkTest {
+	/**
+	 * Bypasses TriggerBase-based automation on Account and Contact for the calling test method.
+	 * UnitOfWork has no knowledge of triggers and is meant to work in any org - including ones with
+	 * real automation configured on these objects, as this repo's own `example` package
+	 * demonstrates. A static bypass set in @TestSetup does not survive into @IsTest methods (Apex
+	 * resets static state between them), so this has to be called from inside each test method
+	 * that performs DML on these objects, not from a shared setup method.
+	 */
+	private static void bypassAmbientTriggers() {
+		TriggerBase.bypass('Account');
+		TriggerBase.bypass('Contact');
+	}
+
 	@IsTest
 	private static void registerNewShouldInsertRecords() {
+		bypassAmbientTriggers();
 		UnitOfWork uow = new UnitOfWork();
 		uow.registerNew(new Account(Name = 'Acme'));
 
@@ -18,6 +32,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDirtyShouldUpdateRecords() {
+		bypassAmbientTriggers();
 		Account account = new Account(Name = 'Acme');
 		insert account;
 		account.Name = 'Acme Updated';
@@ -37,6 +52,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDirtyCalledTwiceForSameRecordShouldMergeBothFields() {
+		bypassAmbientTriggers();
 		Account account = new Account(Name = 'Acme', Industry = 'Technology');
 		insert account;
 		UnitOfWork uow = new UnitOfWork();
@@ -66,6 +82,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDirtyCalledTwiceForSameFieldShouldUseTheLastValue() {
+		bypassAmbientTriggers();
 		Account account = new Account(Name = 'Acme');
 		insert account;
 		UnitOfWork uow = new UnitOfWork();
@@ -123,6 +140,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDeletedCalledTwiceForSameRecordShouldNotThrow() {
+		bypassAmbientTriggers();
 		Account account = new Account(Name = 'Acme');
 		insert account;
 		UnitOfWork uow = new UnitOfWork();
@@ -142,6 +160,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDeletedShouldDeleteRecords() {
+		bypassAmbientTriggers();
 		Account account = new Account(Name = 'Acme');
 		insert account;
 		UnitOfWork uow = new UnitOfWork();
@@ -160,6 +179,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerRelationshipShouldPopulateLookupAfterParentIsInserted() {
+		bypassAmbientTriggers();
 		Account account = new Account(Name = 'Acme');
 		Contact newContact = new Contact(LastName = 'Coyote');
 		UnitOfWork uow = new UnitOfWork();
@@ -180,6 +200,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void deleteOrderShouldBeTheReverseOfRegistrationOrder() {
+		bypassAmbientTriggers();
 		Account account = new Account(Name = 'Acme');
 		insert account;
 		Contact contact = new Contact(LastName = 'Coyote', AccountId = account.Id);
@@ -209,6 +230,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void commitWorkShouldRollBackEverythingOnFailure() {
+		bypassAmbientTriggers();
 		UnitOfWork uow = new UnitOfWork();
 		uow.registerNew(new Contact(LastName = 'Coyote'));
 		uow.registerNew(new Account());
@@ -303,6 +325,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void commitCurrentShouldCommitRegisteredWorkAndClearTheInstance() {
+		bypassAmbientTriggers();
 		UnitOfWork.getCurrent().registerNew(new Account(Name = 'Acme'));
 
 		Test.startTest();
@@ -348,6 +371,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerNewShouldBulkInsertRecords() {
+		bypassAmbientTriggers();
 		List<Account> accounts = new List<Account>();
 		for (Integer i = 0; i < 200; i++) {
 			accounts.add(new Account(Name = 'Bulk Acme ' + i));
@@ -368,6 +392,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDirtyShouldBulkUpdateRecords() {
+		bypassAmbientTriggers();
 		List<Account> accounts = new List<Account>();
 		for (Integer i = 0; i < 200; i++) {
 			accounts.add(new Account(Name = 'Bulk Acme ' + i));
@@ -394,6 +419,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDirtyWithDuplicateIdsInOneListShouldMergeFields() {
+		bypassAmbientTriggers();
 		Account account = new Account(Name = 'Acme', Industry = 'Technology');
 		insert account;
 		UnitOfWork uow = new UnitOfWork();
@@ -423,6 +449,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDirtyShouldMergeDuplicateIdsAcrossABulkRegistration() {
+		bypassAmbientTriggers();
 		List<Account> accounts = new List<Account>();
 		for (Integer i = 0; i < 200; i++) {
 			accounts.add(new Account(Name = 'Bulk Acme ' + i));
@@ -450,6 +477,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerDeletedShouldBulkDeleteRecords() {
+		bypassAmbientTriggers();
 		List<Account> accounts = new List<Account>();
 		for (Integer i = 0; i < 200; i++) {
 			accounts.add(new Account(Name = 'Bulk Acme ' + i));
@@ -471,6 +499,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void registerRelationshipShouldPopulateLookupsForManyRecords() {
+		bypassAmbientTriggers();
 		List<Account> accounts = new List<Account>();
 		List<Contact> contacts = new List<Contact>();
 		UnitOfWork uow = new UnitOfWork();
@@ -623,6 +652,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void commitWorkShouldLogASummaryOfWhatWasCommitted() {
+		bypassAmbientTriggers();
 		insert new LoggerSettings__c(
 			SetupOwnerId = UserInfo.getUserId(),
 			IsEnabled__c = true,
@@ -656,6 +686,7 @@ private class UnitOfWorkTest {
 
 	@IsTest
 	private static void commitWorkShouldLogAndPersistAnErrorEntryOnFailure() {
+		bypassAmbientTriggers();
 		UnitOfWork uow = new UnitOfWork();
 		uow.registerNew(new Contact(LastName = 'Coyote'));
 		uow.registerNew(new Account());
