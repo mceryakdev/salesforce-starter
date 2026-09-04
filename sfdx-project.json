@@ -15,6 +15,10 @@
     {
       "path": "test-mocks",
       "default": false
+    },
+    {
+      "path": "example",
+      "default": false
     }
   ],
   "name": "starter",

@@ -8,6 +8,9 @@ package.xml
 # Framework, Nebula Logger). Vendored for local reading/reference only - never deploy.
 /unlocked/
 
+# demonstration on using trigger framework, unit of work, mocks and logging
+# /example/
+
 # LWC configuration files
 **/jsconfig.json
 **/.eslintrc.json
