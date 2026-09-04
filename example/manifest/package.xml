@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>AccountTriggerTest</members>
+        <members>CreateOnboardingRecords</members>
+        <members>CreateOnboardingRecordsTest</members>
+        <members>SetDefaultAccountRating</members>
+        <members>SetDefaultAccountRatingTest</members>
+        <name>ApexClass</name>
+    </types>
+    <types>
+        <members>AccountTrigger</members>
+        <name>ApexTrigger</name>
+    </types>
+    <types>
+        <members>Trigger_Action.Account_Create_Onboarding_Records</members>
+        <members>Trigger_Action.Account_Set_Default_Rating</members>
+        <members>sObject_Trigger_Setting.Account</members>
+        <name>CustomMetadata</name>
+    </types>
+    <version>67.0</version>
+</Package>
