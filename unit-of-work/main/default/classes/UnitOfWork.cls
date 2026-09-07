@@ -283,6 +283,12 @@ public inherited sharing class UnitOfWork {
     }
   }
 
+  /**
+   * @description Inserts each type's new records, in the order the types were first registered, so
+   * that a parent type registered before its children exists by the time they are inserted.
+   * Relationships are resolved per type immediately before that type's insert, which is the last
+   * moment at which the record being pointed at is guaranteed to have an Id.
+   */
   private void insertNewRecords() {
     for (Schema.SObjectType sObjectType : this.sObjectTypeOrder) {
       List<SObject> records = this.newRecordsByType.get(sObjectType);
@@ -294,12 +300,23 @@ public inherited sharing class UnitOfWork {
     }
   }
 
+  /**
+   * @description Updates each type's dirty records. Order doesn't matter here the way it does for
+   * inserts and deletes: every record already exists, so nothing depends on anything else having
+   * been written first.
+   */
   private void updateDirtyRecords() {
     for (Map<Id, SObject> recordsById : this.dirtyRecordsByType.values()) {
       this.updateRecords(recordsById.values());
     }
   }
 
+  /**
+   * @description Deletes each type's records in the reverse of the order the types were registered
+   * in. Deleting is the mirror image of inserting: children have to go before the parents they
+   * reference, so callers can register in "parent, then children" order for both and let this
+   * handle the reversal.
+   */
   private void deleteRecordsInReverseOrder() {
     for (Integer i = this.sObjectTypeOrder.size() - 1; i >= 0; i--) {
       Map<Id, SObject> recordsById = this.deletedRecordsByType.get(
@@ -356,6 +373,12 @@ public inherited sharing class UnitOfWork {
     }
   }
 
+  /**
+   * @description Populates the lookup fields registered for this type, filling in Ids that did not
+   * exist when `registerRelationship` was called. Doing nothing when a type has no registered
+   * relationships is the common case, not an error.
+   * @param sObjectType The type whose relationships should be resolved.
+   */
   private void resolveRelationships(Schema.SObjectType sObjectType) {
     List<Relationship> relationships = this.relationshipsByType.get(
       sObjectType
@@ -368,6 +391,14 @@ public inherited sharing class UnitOfWork {
     }
   }
 
+  /**
+   * @description Adds a record to its type's list, creating the list on first use. New records are
+   * kept in a plain list rather than keyed by Id, because they don't have one yet - and because
+   * registering the same new record twice should genuinely insert it twice.
+   * @param recordsByType The grouping to add to.
+   * @param sObjectType The type the record belongs to.
+   * @param record The record to add.
+   */
   private void addToGroup(
     Map<Schema.SObjectType, List<SObject>> recordsByType,
     Schema.SObjectType sObjectType,
@@ -381,6 +412,14 @@ public inherited sharing class UnitOfWork {
     records.add(record);
   }
 
+  /**
+   * @description Folds a dirty record into whatever was already registered for that Id, so two
+   * classes can each set a different field on the same record and both changes survive into a
+   * single update. Only fields the caller actually populated are copied - copying every field would
+   * overwrite the other caller's work with nulls - which means the last call to set a given field
+   * wins, and fields nobody set are left alone.
+   * @param record The record whose populated fields should be merged in.
+   */
   private void mergeIntoDirty(SObject record) {
     Map<Id, SObject> recordsById = this.recordsByIdFor(
       this.dirtyRecordsByType,
@@ -396,6 +435,14 @@ public inherited sharing class UnitOfWork {
     }
   }
 
+  /**
+   * @description Returns the by-Id map for a type, creating it on first use. Dirty and deleted
+   * records are keyed by Id rather than listed, which is what makes registering the same record
+   * twice harmless for both.
+   * @param recordsByType The grouping to look in.
+   * @param sObjectType The type whose records are wanted.
+   * @return That type's records, keyed by Id.
+   */
   private Map<Id, SObject> recordsByIdFor(
     Map<Schema.SObjectType, Map<Id, SObject>> recordsByType,
     Schema.SObjectType sObjectType
@@ -408,6 +455,12 @@ public inherited sharing class UnitOfWork {
     return recordsById;
   }
 
+  /**
+   * @description Totals the records across every type in a listed grouping, for the summary logged
+   * before committing.
+   * @param recordsByType The grouping to count.
+   * @return The total number of records in it.
+   */
   private Integer countRecords(
     Map<Schema.SObjectType, List<SObject>> recordsByType
   ) {
@@ -418,6 +471,12 @@ public inherited sharing class UnitOfWork {
     return total;
   }
 
+  /**
+   * @description The by-Id counterpart of the other `countRecords`, for the dirty and deleted
+   * groupings.
+   * @param recordsByType The grouping to count.
+   * @return The total number of records in it.
+   */
   private Integer countRecords(
     Map<Schema.SObjectType, Map<Id, SObject>> recordsByType
   ) {
@@ -428,6 +487,12 @@ public inherited sharing class UnitOfWork {
     return total;
   }
 
+  /**
+   * @description Records the first time a type is registered, building the order that inserts
+   * follow and deletes reverse. Later registrations of the same type don't move it, so the order
+   * reflects when each type was first seen rather than most recently touched.
+   * @param sObjectType The type that was registered.
+   */
   private void trackType(Schema.SObjectType sObjectType) {
     if (this.trackedTypes.contains(sObjectType)) {
       return;
@@ -436,23 +501,43 @@ public inherited sharing class UnitOfWork {
     this.sObjectTypeOrder.add(sObjectType);
   }
 
+  /**
+   * @description Guards every method that registers or commits work. A committed instance has
+   * already run its DML and cleared nothing, so letting it accept more work would silently drop it.
+   */
   private void assertNotCommitted() {
     if (this.committed) {
       throw new UnitOfWorkException(ALREADY_COMMITTED_MESSAGE);
     }
   }
 
+  /**
+   * @description Guards `registerDirty` and `registerDeleted`, both of which key records by Id. A
+   * record with no Id would otherwise be silently grouped under a null key and lost.
+   * @param record The record that must already exist.
+   */
   private void assertHasId(SObject record) {
     if (record.Id == null) {
       throw new UnitOfWorkException(MISSING_ID_MESSAGE);
     }
   }
 
+  /**
+   * @description One deferred "point this record's lookup field at that record" instruction. It
+   * holds the two records themselves rather than an Id, because the whole point is that the Id does
+   * not exist yet when the relationship is registered.
+   */
   private class Relationship {
     private final SObject record;
     private final Schema.SObjectField relatedToField;
     private final SObject relatedTo;
 
+    /**
+     * @description Records the intent to populate a lookup, to be acted on later.
+     * @param record The record whose lookup field should be populated.
+     * @param relatedToField The lookup field on `record` to populate.
+     * @param relatedTo The record whose Id should be written into `relatedToField`.
+     */
     private Relationship(
       SObject record,
       Schema.SObjectField relatedToField,
@@ -463,6 +548,12 @@ public inherited sharing class UnitOfWork {
       this.relatedTo = relatedTo;
     }
 
+    /**
+     * @description Writes the related record's Id into the lookup field, at the point just before
+     * the referencing record is inserted. A related record that still has no Id by now never will -
+     * it was either never registered, or registered after the record pointing at it - so this
+     * throws rather than writing a null lookup and leaving a silently orphaned record behind.
+     */
     private void resolve() {
       if (this.relatedTo.Id == null) {
         throw new UnitOfWorkException(
