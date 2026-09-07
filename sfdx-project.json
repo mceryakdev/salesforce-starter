@@ -9,6 +9,10 @@
       "default": false
     },
     {
+      "path": "security",
+      "default": false
+    },
+    {
       "path": "taf-ext",
       "default": false
     },
