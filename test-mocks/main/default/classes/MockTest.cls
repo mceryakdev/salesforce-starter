@@ -144,10 +144,7 @@ private class MockTest {
 		mockedUnitOfWork.commitWork();
 
 		System.Assert.isTrue(mock.wasCalled('commitWork'), 'commitWork should have been recorded');
-		System.Assert.isTrue(
-			mock.argumentsOf('commitWork').isEmpty(),
-			'commitWork takes no arguments'
-		);
+		System.Assert.isTrue(mock.argumentsOf('commitWork').isEmpty(), 'commitWork takes no arguments');
 	}
 
 	@IsTest

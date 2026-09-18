@@ -85,11 +85,7 @@ private class CreateOnboardingRecordsTest {
 			arguments[0],
 			'The Case is the record whose lookup gets populated'
 		);
-		System.Assert.areEqual(
-			Case.ContactId,
-			arguments[1],
-			'ContactId is the field to populate'
-		);
+		System.Assert.areEqual(Case.ContactId, arguments[1], 'ContactId is the field to populate');
 		System.Assert.areEqual(
 			registeredContact,
 			arguments[2],

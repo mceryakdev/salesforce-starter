@@ -6,6 +6,10 @@
   ],
   "overrides": [
     {
+      "files": "*.{cls,trigger}",
+      "options": { "useTabs": true, "printWidth": 100 }
+    },
+    {
       "files": "**/lwc/**/*.html",
       "options": { "parser": "lwc" }
     },
