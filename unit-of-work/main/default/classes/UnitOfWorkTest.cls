@@ -306,6 +306,68 @@ private class UnitOfWorkTest {
 	}
 
 	@IsTest
+	private static void commitWorkShouldEmptyQueryCaches() {
+		bypassAmbientTriggers();
+		Set<Id> cachedIds = new Set<Id>{ UserInfo.getUserId() };
+		QueryCache cache = new QueryCache();
+		cache.store(cachedIds, new List<User>());
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerNew(new Account(Name = 'Acme'));
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			cachedIds,
+			cache.notYetQueried(cachedIds),
+			'Records cached before a commit may be out of date after it, so selectors should query again'
+		);
+	}
+
+	@IsTest
+	private static void commitWorkShouldEmptyQueryCachesEvenWhenItFails() {
+		bypassAmbientTriggers();
+		Set<Id> cachedIds = new Set<Id>{ UserInfo.getUserId() };
+		QueryCache cache = new QueryCache();
+		cache.store(cachedIds, new List<User>());
+		UnitOfWork uow = new UnitOfWork();
+		uow.registerNew(new Account());
+
+		Test.startTest();
+		try {
+			uow.commitWork();
+			System.Assert.fail('Expected a DmlException from the invalid Account');
+		} catch (DmlException e) {
+			// expected - assertion continues below
+		}
+		Test.stopTest();
+
+		System.Assert.areEqual(
+			cachedIds,
+			cache.notYetQueried(cachedIds),
+			'Triggers fired during a failed commit may have cached records the rollback then undid'
+		);
+	}
+
+	@IsTest
+	private static void commitWorkWithNoRegisteredWorkShouldLeaveQueryCachesAlone() {
+		Set<Id> cachedIds = new Set<Id>{ UserInfo.getUserId() };
+		QueryCache cache = new QueryCache();
+		cache.store(cachedIds, new List<User>());
+		UnitOfWork uow = new UnitOfWork();
+
+		Test.startTest();
+		uow.commitWork();
+		Test.stopTest();
+
+		System.Assert.isTrue(
+			cache.notYetQueried(cachedIds).isEmpty(),
+			'An empty commit writes nothing, so nothing cached has gone out of date'
+		);
+	}
+
+	@IsTest
 	private static void getCurrentShouldReturnTheSameInstanceUntilCommitted() {
 		UnitOfWork first = UnitOfWork.getCurrent();
 		UnitOfWork second = UnitOfWork.getCurrent();

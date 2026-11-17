@@ -252,6 +252,38 @@ private class UOWMetadataTriggerHandlerTest {
 		);
 	}
 
+	@IsTest
+	private static void constructingAHandlerShouldEmptyQueryCaches() {
+		Set<Id> cachedIds = new Set<Id>{ UserInfo.getUserId() };
+		QueryCache cache = new QueryCache();
+		cache.store(cachedIds, new List<User>());
+
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler();
+
+		System.Assert.isNotNull(handler, 'The handler should have been constructed');
+		System.Assert.areEqual(
+			cachedIds,
+			cache.notYetQueried(cachedIds),
+			'A trigger constructs a new handler every time it fires, so selector results should never outlive the context that queried them'
+		);
+	}
+
+	@IsTest
+	private static void constructingWithAnAccessLevelShouldAlsoEmptyQueryCaches() {
+		Set<Id> cachedIds = new Set<Id>{ UserInfo.getUserId() };
+		QueryCache cache = new QueryCache();
+		cache.store(cachedIds, new List<User>());
+
+		UOWMetadataTriggerHandler handler = new UOWMetadataTriggerHandler(System.AccessLevel.USER_MODE);
+
+		System.Assert.isNotNull(handler, 'The handler should have been constructed');
+		System.Assert.areEqual(
+			cachedIds,
+			cache.notYetQueried(cachedIds),
+			'Choosing an access level should not change when selector results are cleared'
+		);
+	}
+
 	private class ThrowingFinalizerHandler extends FinalizerHandler {
 		public override void handleDynamicFinalizers() {
 			throw new System.DmlException('Simulated finalizer failure');

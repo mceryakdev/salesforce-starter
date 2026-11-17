@@ -5,6 +5,10 @@
       "default": true
     },
     {
+      "path": "selector",
+      "default": false
+    },
+    {
       "path": "unit-of-work",
       "default": false
     },

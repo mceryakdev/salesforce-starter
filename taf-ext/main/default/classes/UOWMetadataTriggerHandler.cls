@@ -22,6 +22,12 @@
  * Trigger Actions can then call `UnitOfWork.getCurrent()` to register work instead of performing
  * DML directly.
  *
+ * Each new handler also empties every `QueryCache`, so selector results last for one trigger
+ * context at most. A trigger constructs a new handler every time it fires, so this happens at the
+ * start of every context, including triggers fired by other DML partway through this one. That
+ * matters because the records change between contexts: a `before update` query sees the database
+ * before the update, and an `after update` action must not be handed those rows.
+ *
  * Pass `AccessLevel.USER_MODE` to the constructor to have everything the run commits enforce the
  * running user's object permissions, field-level security, and sharing rules. The Trigger Actions
  * themselves don't change - see the constructor below.
@@ -46,8 +52,13 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	/**
 	 * @description Creates a handler that commits the current `UnitOfWork` the way a plain DML
 	 * statement would run it - object permissions and field-level security are not enforced.
+	 *
+	 * Empties every `QueryCache`. This is done here, rather than as each context is dispatched,
+	 * because the constructor runs even when the object is bypassed, and bypassed DML changes
+	 * records too.
 	 */
 	public UOWMetadataTriggerHandler() {
+		QueryCache.clearAll();
 	}
 
 	/**
@@ -68,9 +79,12 @@ public inherited sharing class UOWMetadataTriggerHandler extends TriggerBase imp
 	 * If a `UnitOfWork` already exists for this transaction, because something else created one
 	 * before the trigger fired, it is left alone: an instance's access level is fixed when it is
 	 * created, and the code that created it owns that decision.
+	 *
+	 * Like the no-argument constructor, this empties every `QueryCache`.
 	 * @param accessLevel The access level to commit this trigger run's work at.
 	 */
 	public UOWMetadataTriggerHandler(System.AccessLevel accessLevel) {
+		this();
 		UnitOfWork.getCurrent(accessLevel);
 	}
 

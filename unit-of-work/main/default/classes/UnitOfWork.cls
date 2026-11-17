@@ -60,6 +60,9 @@
  * Note that passing `AccessLevel.SYSTEM_MODE` is not the same as leaving the access level unset:
  * setting it explicitly also bypasses sharing rules, which the default leaves to the calling
  * context.
+ *
+ * Any commit that writes something also empties every `QueryCache`, so selectors query again rather
+ * than hand out records from before the commit.
  */
 public inherited sharing class UnitOfWork {
 	@TestVisible
@@ -245,6 +248,11 @@ public inherited sharing class UnitOfWork {
 	 * then deletes - as a single all-or-nothing operation. If any DML fails, everything registered
 	 * on this instance is rolled back and the exception is re-thrown. Once called, this instance
 	 * cannot register or commit more work - create a new `UnitOfWork` for further work.
+	 *
+	 * Whether it succeeds or fails, a commit that writes anything empties every `QueryCache`. On
+	 * success the cached records are out of date. On failure it matters just as much: the commit
+	 * fires triggers while it runs, and their selectors may have cached records that the rollback
+	 * has just undone.
 	 */
 	public void commitWork() {
 		this.assertNotCommitted();
@@ -263,7 +271,8 @@ public inherited sharing class UnitOfWork {
 		);
 		if (recordsToInsert + recordsToUpdate + recordsToDelete == 0) {
 			// Nothing to do, and `Database.setSavepoint()` costs a DML statement against the same
-			// governor limit as the DML itself - so an empty commit should stay genuinely free.
+			// governor limit as the DML itself - so an empty commit should stay genuinely free. It
+			// also leaves the query caches alone: nothing was written, so nothing they hold is stale.
 			return;
 		}
 		Savepoint savepoint = Database.setSavepoint();
@@ -274,6 +283,8 @@ public inherited sharing class UnitOfWork {
 		} catch (Exception e) {
 			Database.rollback(savepoint);
 			Logger.exception('UnitOfWork.commitWork failed; all registered changes were rolled back', e);
+		} finally {
+			QueryCache.clearAll();
 		}
 	}
 

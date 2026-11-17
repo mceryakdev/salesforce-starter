@@ -4,16 +4,17 @@ A foundation for Apex trigger work that keeps business logic out of DML plumbing
 established open-source unlocked packages -
 [Trigger Actions Framework](https://github.com/mitchspano/trigger-actions-framework) for trigger
 dispatch and [Nebula Logger](https://github.com/jongpie/NebulaLogger) for observability - and adds
-four small packages that connect them, make the result easy to test, and show what using all of it
+five small packages that connect them, make the result easy to test, and show what using all of it
 together actually looks like.
 
 | Package         | What it gives you                                                                                             |
 | --------------- | ------------------------------------------------------------------------------------------------------------- |
 | `unit-of-work/` | Register DML as you go, commit it once, all-or-nothing. Trigger-agnostic - usable from any Apex.              |
 | `taf-ext/`      | Wires the Unit of Work into Trigger Actions Framework, committing once at the true end of a trigger run.      |
+| `selector/`     | Lets every Trigger Action ask for the same records while only the first one pays for the query.               |
 | `security/`     | Ask what the current user is allowed to do - objects, fields, records, custom permissions - in one line.      |
 | `test-mocks/`   | A tiny Stub API mocking utility so you can test what your code _registered_ instead of what the database did. |
-| `example/`      | A working trigger built on all three, showing the intended patterns end to end. Optional - see below.         |
+| `example/`      | A working trigger built on all of them, showing the intended patterns end to end. Optional - see below.       |
 | `force-app/`    | Default package directory for your own org-specific metadata.                                                 |
 
 ---
@@ -59,6 +60,40 @@ rows) and exposes it as `finalizeDmlOperation()`. `MetadataTriggerHandler` can't
 call to an internal `MetadataTriggerHandler` - none of the metadata-driven dispatch, bypass, or
 permission behavior changes - while overriding `finalizeDmlOperation()` to commit the Unit of Work
 and flush the log buffer exactly once.
+
+### `selector` - because five Trigger Actions shouldn't run the same query five times
+
+Splitting trigger logic into small Trigger Actions solves one problem and creates another: each
+action needs its own data. Three actions that all look at the parent Account each run their own
+query, and a fourth that also wants the parent's owner adds another. Nothing is wrong with any one
+of them, but together they spend SOQL against a limit of 100, and every one is repeated each time a
+cascade fires the trigger again.
+
+The two usual fixes both cost more than they save. Querying everything up front, in the trigger,
+means the trigger has to know what every action will want. Passing results from action to action
+couples actions that are meant to be independent and ordered by metadata.
+
+`selector` takes a third route: put each query in one method on a selector class, and have that
+method remember what it already fetched. The first action to ask runs the query. Every later action
+that asks for the same records gets the same results with no query at all, and doesn't need to know
+anyone else asked:
+
+```apex
+List<Account> parents = AccountSelector.getInstance().selectById(parentIds);
+```
+
+The package itself is one small class, `QueryCache`. You still write the selector, and its query
+stays an ordinary SOQL literal, so the compiler checks every field name. The cache only decides
+_whether_ the query runs.
+
+Cached records go stale the moment anything writes to the database, so the other packages empty
+every cache at the two points where that happens: `UOWMetadataTriggerHandler` at the start of every
+trigger context, and `UnitOfWork` after every commit that wrote something. In practice, cached
+results last for at most one trigger context. That's enough to collapse the repeated queries within
+a context, and short enough that nothing stale is handed out.
+
+`QueryCache` has no dependencies of its own. `unit-of-work` and `taf-ext` both call it to clear the
+caches, so it has to be deployed before either of them.
 
 ### `security` - because "can this user do this?" has four different answers
 
@@ -113,18 +148,19 @@ two small classes, needs no interfaces, and requires no changes to the code bein
 
 ### `example` - because reading about a pattern and using it correctly are different skills
 
-The other three packages are described above in isolation. `example` is a real, deployable
+The other packages are described above in isolation. `example` is a real, deployable
 `AccountTrigger` built on all of them together, on the theory that a working example answers
 questions a description can't: what does a `before insert` action look like when it needs no Unit
-of Work at all? How do you point a new Case at a new Contact that doesn't have an Id yet? Where does
-the line actually fall between "test this with a mock" and "test this with a real trigger"?
+of Work at all? How does it read a related record through a selector? How do you point a new Case at
+a new Contact that doesn't have an Id yet? Where does the line actually fall between "test this with
+a mock" and "test this with a real trigger"?
 
-It's deliberately small - one object, two Trigger Actions, one relationship - so the whole thing can
+It's deliberately small - one object, two Trigger Actions, one selector - so the whole thing can
 be read in a few minutes rather than studied. See [Example: a full walkthrough](#example-a-full-walkthrough)
 below for what it does and why it's built the way it is.
 
 **This package is entirely optional and safe to delete.** It exists only to demonstrate the other
-three; nothing in `unit-of-work`, `taf-ext`, or `test-mocks` depends on it. More importantly, once
+packages; none of them depends on it. More importantly, once
 deployed it installs a real, unconditionally active trigger on the standard Account object - see the
 warning under the walkthrough before deploying it into any org that isn't dedicated to trying it out.
 
@@ -149,21 +185,24 @@ Each project documents its own post-install configuration - permission sets, `Lo
 
 ```bash
 sf project deploy start \
-  --source-dir unit-of-work --source-dir taf-ext --source-dir security --source-dir test-mocks \
+  --source-dir selector --source-dir unit-of-work --source-dir taf-ext \
+  --source-dir security --source-dir test-mocks \
   --target-org <your-org-or-alias>
 ```
 
 Each package also has its own manifest, if you'd rather deploy them one at a time:
 
 ```bash
+sf project deploy start --manifest selector/manifest/package.xml     --target-org <your-org-or-alias>
 sf project deploy start --manifest unit-of-work/manifest/package.xml --target-org <your-org-or-alias>
 sf project deploy start --manifest taf-ext/manifest/package.xml      --target-org <your-org-or-alias>
 sf project deploy start --manifest security/manifest/package.xml     --target-org <your-org-or-alias>
 sf project deploy start --manifest test-mocks/manifest/package.xml   --target-org <your-org-or-alias>
 ```
 
-Deploy order matters if you split them up. `unit-of-work` and `security` each stand alone; both
-`taf-ext` and `test-mocks` reference `UnitOfWork`, so it goes before those two.
+Deploy order matters if you split them up, and the list above is in a working order. `selector` and
+`security` each stand alone. `unit-of-work` calls `QueryCache`, so it goes after `selector`. `taf-ext`
+calls both, and `test-mocks` references `UnitOfWork`, so those two go last.
 
 ### 3. Optional: deploy the `example` package
 
@@ -273,6 +312,68 @@ public with sharing class CreateOnboardingTask implements TriggerAction.AfterIns
 
 Note what isn't there: no `insert`, no bulkification bookkeeping, no savepoint. Ten Trigger Actions
 written this way still produce one `insert` per sObject type for the entire trigger run.
+
+### `selector` to share query results between Trigger Actions
+
+A selector is a class that holds an object's queries, one method per query _shape_ (a set of fields,
+parents, and child subqueries). Each method keeps its own `QueryCache` and follows the same three
+steps every time: ask which Ids haven't been queried yet, query only those, then return everything
+that was asked for from the cache.
+
+```apex
+public with sharing class AccountSelector {
+  @TestVisible
+  private static AccountSelector instance;
+
+  private final QueryCache selectByIdCache = new QueryCache();
+
+  public static AccountSelector getInstance() {
+    if (AccountSelector.instance == null) {
+      AccountSelector.instance = new AccountSelector();
+    }
+    return AccountSelector.instance;
+  }
+
+  public List<Account> selectById(Set<Id> accountIds) {
+    Set<Id> idsToQuery = this.selectByIdCache.notYetQueried(accountIds);
+    if (!idsToQuery.isEmpty()) {
+      this.selectByIdCache.store(
+        idsToQuery,
+        [SELECT Id, Name, Rating FROM Account WHERE Id IN :idsToQuery]
+      );
+    }
+    return (List<Account>) this.selectByIdCache.get(accountIds);
+  }
+}
+```
+
+Copy that shape exactly. If you skip the `store` step, `get` throws rather than quietly returning
+fewer records. Four rules keep it correct:
+
+- **One cache per method.** Each method selects different fields. A shared cache would hand one
+  method records missing the fields it asked for, and reading one of those fields throws.
+- **Only cache lookups by Id.** For child records, use a subquery on the parent so they're cached
+  under the parent's Id. A query that isn't by Id can be an ordinary method with no cache.
+- **Treat returned records as read-only.** Every caller gets the same instances. To change one,
+  register a fresh record with just the Id and the changed field:
+  `UnitOfWork.getCurrent().registerDirty(new Account(Id = account.Id, Rating = 'Hot'))`.
+- **Declare the selector `with sharing` or `without sharing`, never `inherited sharing`.** With a
+  cache, whichever caller runs first decides what every later caller sees, so the sharing rules have
+  to belong to the selector rather than to the caller.
+
+The caches are emptied for you at the start of every trigger context and after every `UnitOfWork`
+commit that writes something. The one case you have to handle yourself is DML that goes through
+neither, such as a plain `update` on an object whose trigger doesn't use `UOWMetadataTriggerHandler`.
+If you then read the same records through a selector, call `QueryCache.clearAll()` after the DML.
+
+Because `getInstance()` reads a swappable static, the code that _uses_ a selector can be tested with
+no records at all. Have the mock return Accounts built in memory:
+
+```apex
+AccountSelector.instance = (AccountSelector) Mock.of(AccountSelector.class)
+	.returns('selectById', new List<Account>{ parent })
+	.instance();
+```
 
 ### `security` to check what the user is allowed to do
 
@@ -408,17 +509,22 @@ works by assigning the mock to the field `UnitOfWork.getCurrent()` reads from.
 
 ```
 AccountTrigger
-  └─ UOWMetadataTriggerHandler.run()
-       ├─ forwards each context to MetadataTriggerHandler
-       │    └─ your Trigger Actions → UnitOfWork.getCurrent().registerNew(...)
-       └─ finalizeDmlOperation()          ← runs once, at the true end of the run
-            ├─ UnitOfWork.commitCurrent()  → one DML statement per sObject type
-            ├─ DmlFinalizers
-            └─ Logger.saveLog()            → flushes everything buffered during the run
+  └─ new UOWMetadataTriggerHandler()      ← every context: QueryCache.clearAll()
+       └─ run()
+            ├─ forwards each context to MetadataTriggerHandler
+            │    └─ your Trigger Actions
+            │         ├─ AccountSelector.getInstance().selectById(...)  → first caller queries
+            │         └─ UnitOfWork.getCurrent().registerNew(...)
+            └─ finalizeDmlOperation()          ← runs once, at the true end of the run
+                 ├─ UnitOfWork.commitCurrent()  → one DML statement per sObject type,
+                 │                                then QueryCache.clearAll()
+                 ├─ DmlFinalizers
+                 └─ Logger.saveLog()            → flushes everything buffered during the run
 ```
 
-In tests, `MockUnitOfWork.install()` replaces the target of that `getCurrent()` call, so the same
-Trigger Action can be tested without any of the machinery below it running.
+In tests, `MockUnitOfWork.install()` and `AccountSelector.instance = ...` replace the targets of
+those `getInstance()`/`getCurrent()` calls, so the same Trigger Action can be tested without any of
+the machinery below it running.
 
 ---
 
@@ -429,8 +535,9 @@ Trigger Action can be tested without any of the machinery below it running.
 | File                              | Role                                                                                                                                                                              |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `triggers/AccountTrigger.trigger` | One line: `new UOWMetadataTriggerHandler().run();`. Every context is listed; nothing else lives here.                                                                             |
-| `classes/SetDefaultAccountRating` | `before insert` - defaults `Rating` when it's blank.                                                                                                                              |
+| `classes/SetDefaultAccountRating` | `before insert` - when `Rating` is blank, copies the parent Account's Rating, or uses a default.                                                                                  |
 | `classes/CreateOnboardingRecords` | `after insert` - registers a primary Contact and an onboarding Case per Account.                                                                                                  |
+| `classes/AccountSelector`         | The one place Account queries live. `selectById` caches its results with a `QueryCache`.                                                                                          |
 | `customMetadata/*.md-meta.xml`    | The `Trigger_Action__mdt` and `sObject_Trigger_Setting__mdt` records that wire the two classes above into the contexts they need, with no code change to `AccountTrigger` itself. |
 
 ### The two actions show the two shapes a Trigger Action takes
@@ -438,6 +545,13 @@ Trigger Action can be tested without any of the machinery below it running.
 `SetDefaultAccountRating` needs no Unit of Work at all: in a `before insert` context, the records in
 `triggerNew` _are_ the ones about to be written, so mutating a field on them is the entire operation.
 Registering them for update would be wrong - it would write the same records a second time.
+
+It also shows how to read related records in a `before` context: by the lookup Id on `triggerNew`.
+A new Account has no Id to query by, but its `ParentId` is right there. The same habit is right in
+`before update`, where the database still holds the old values. The action collects the `ParentId`s
+of only the Accounts that still need a Rating and asks `AccountSelector` for them, so a batch that
+arrives fully rated costs no query. Any other action in the same context that asks for the same
+parents gets them without a second query.
 
 `CreateOnboardingRecords` needs the Unit of Work because it touches _other_ records, and it's the one
 worth reading closely: the Contact's `AccountId` is set directly (the Account already has an Id by
@@ -448,11 +562,16 @@ DML statements the Unit of Work would have used anyway, whether this ran for one
 
 ### The tests show where the line falls between "mock it" and "run it for real"
 
-Three test classes, three different jobs:
+Four test classes, four different jobs:
 
 - **`SetDefaultAccountRatingTest`** calls `beforeInsert(...)` directly on an in-memory list. No
   trigger, no CMDT, no DML - a `before insert` action just mutates records, so a test for one just
-  checks the records.
+  checks the records. The parent Accounts come from a mocked `AccountSelector`, so even the
+  inheritance rules are tested without inserting a parent/child hierarchy, and one test asserts
+  which `ParentId`s the action asked for.
+- **`AccountSelectorTest`** is the opposite: it runs against real Accounts, because a selector's
+  whole job is the query. It counts queries with `Limits.getQueries()` to prove that repeated and
+  overlapping calls query only what's new, and that an update makes the next call query again.
 - **`CreateOnboardingRecordsTest`** calls `afterInsert(...)` directly with `MockUnitOfWork` installed,
   and asserts on what got registered - the Contact's fields, the Case's fields, and the exact
   `registerRelationship` arguments - covering blank input, bulk (200 Accounts), and that the action
@@ -524,15 +643,16 @@ to `ERROR` or `WARN` - turn the level up when you need to trace a transaction.
 sf apex run test --target-org <your-org-or-alias> \
   --class-names UnitOfWorkTest --class-names UOWMetadataTriggerHandlerTest \
   --class-names ObjectSecurityTest --class-names RecordSecurityTest \
-  --class-names CustomPermissionsTest \
+  --class-names CustomPermissionsTest --class-names QueryCacheTest \
   --class-names MockTest --class-names MockUnitOfWorkTest \
   --code-coverage
 ```
 
-112 tests across the four core packages, with `UnitOfWork`, `UOWMetadataTriggerHandler`,
-`ObjectSecurity`, `RecordSecurity`, and `CustomPermissions` all at 100% coverage - including bulk
+129 tests across the five core packages, covering `UnitOfWork`, `UOWMetadataTriggerHandler`,
+`QueryCache`, `ObjectSecurity`, `RecordSecurity`, and `CustomPermissions` - including bulk
 (200-record) registration, dirty-record merging, empty-list edge cases, rollback behavior, the log
-entries produced on the success and failure paths, and user-mode commits. The `Mock` classes are
+entries produced on the success and failure paths, user-mode commits, and when the query caches are
+emptied. The `Mock` classes are
 `@IsTest`, so they are excluded from coverage by design.
 
 The `security` tests are written to pass in any org, without setting up a restricted user: they lean
@@ -546,15 +666,15 @@ If you've deployed `example` too, add its test classes to the same run:
 sf apex run test --target-org <your-org-or-alias> \
   --class-names UnitOfWorkTest --class-names UOWMetadataTriggerHandlerTest \
   --class-names ObjectSecurityTest --class-names RecordSecurityTest \
-  --class-names CustomPermissionsTest \
+  --class-names CustomPermissionsTest --class-names QueryCacheTest \
   --class-names MockTest --class-names MockUnitOfWorkTest \
   --class-names SetDefaultAccountRatingTest --class-names CreateOnboardingRecordsTest \
-  --class-names AccountTriggerTest \
+  --class-names AccountSelectorTest --class-names AccountTriggerTest \
   --code-coverage
 ```
 
-That adds `SetDefaultAccountRating`, `CreateOnboardingRecords`, and `AccountTrigger` to the covered
-set.
+That adds `SetDefaultAccountRating`, `CreateOnboardingRecords`, `AccountSelector`, and
+`AccountTrigger` to the covered set.
 
 ## Prerequisites for local development
 
